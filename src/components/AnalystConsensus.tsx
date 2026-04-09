@@ -1,8 +1,8 @@
 import type { AnalystConsensusEntry } from "@/lib/types";
 
-interface AnalystConsensusProps {
-  items?: AnalystConsensusEntry[];
-}
+type AnalystConsensusProps = {
+  readonly items?: readonly AnalystConsensusEntry[];
+};
 
 export function AnalystConsensus({ items = [] }: AnalystConsensusProps) {
   return (

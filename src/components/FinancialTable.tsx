@@ -1,8 +1,8 @@
 import type { FinancialMetric } from "@/lib/types";
 
-interface FinancialTableProps {
-  metrics?: FinancialMetric[];
-}
+type FinancialTableProps = {
+  readonly metrics?: readonly FinancialMetric[];
+};
 
 export function FinancialTable({ metrics = [] }: FinancialTableProps) {
   return (
