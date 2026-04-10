@@ -14,13 +14,13 @@ const SUBMISSIONS_BASE = "https://data.sec.gov/submissions";
 const SEARCH_URL =
   'https://efts.sec.gov/LATEST/search-index?q=%22{query}%22&dateRange=custom&startdt=2020-01-01&enddt={today}&forms=10-K';
 const USER_AGENT = "FinancialIntelligence/1.0 contact@example.com";
-const REVENUE_CONCEPTS = [
+export const REVENUE_CONCEPTS = [
   "Revenues",
   "RevenueFromContractWithCustomerExcludingAssessedTax",
   "SalesRevenueNet",
   "SalesRevenueGoodsNet",
 ] as const;
-const NET_INCOME_CONCEPTS = [
+export const NET_INCOME_CONCEPTS = [
   "NetIncomeLoss",
   "NetIncomeLossAvailableToCommonStockholdersBasic",
 ] as const;
@@ -340,7 +340,7 @@ function getAnnualUsdFacts(concept: SecXbrlConcept | undefined): readonly SecXbr
   return concept?.units["USD"]?.filter((fact) => fact.form === "10-K") ?? [];
 }
 
-function extractLatestFact(
+export function extractLatestFact(
   facts: SecXbrlFacts,
   concepts: readonly string[],
 ): number | null {

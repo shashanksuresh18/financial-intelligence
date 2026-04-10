@@ -8,17 +8,15 @@
 - [x] Step 4: SEC EDGAR client (verify: call Apple CIK, log financials)
 - [x] Step 5: Companies House client (verify: search Revolut, log response)
 - [x] Step 6: GLEIF client (verify: search Deutsche Bank, log response)
-- [ ] Step 7: Claude fallback client (verify: research SpaceX, log JSON)
-- [ ] Step 8: Confidence rating logic
-- [ ] Step 9: Waterfall analyzer (verify: test all 4 companies)
+- [x] Step 7: Claude fallback client (verify: research SpaceX, log JSON)
+- [x] Step 8: Confidence rating logic
+- [x] Step 9: Waterfall analyzer (verify: test all 4 companies)
 - [ ] Step 10: Claude narrative generation (verify: Apple report uses real SEC numbers)
 - [ ] Step 11: API routes + Prisma schema (verify: curl each endpoint)
 - [ ] Step 12: Frontend dashboard (verify: browser test full flow)
 - [ ] Step 13: Final simplification pass
 
----
-
-## Step 7 Plan — `src/lib/datasources/claude-fallback.ts`
+## Step 10 Plan — `src/lib/claude-narrative.ts`
 
 ### Overview
 
