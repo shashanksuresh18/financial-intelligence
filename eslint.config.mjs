@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Claude Code tooling — CommonJS Node scripts, not app source:
+    ".claude/**",
+    // Auto-generated Prisma client:
+    "src/generated/**",
   ]),
 ]);
 

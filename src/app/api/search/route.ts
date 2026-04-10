@@ -5,6 +5,7 @@ import type { GleifRecord, SearchResult } from "@/lib/types";
 import { fetchCompaniesHouseData } from "@/lib/datasources/companies-house";
 import { searchSymbols, toSearchResults } from "@/lib/datasources/finnhub";
 import { fetchGleifData } from "@/lib/datasources/gleif";
+import type { SearchApiResponse } from "@/lib/types";
 
 function toCompaniesHouseSearchResults(
   matches: readonly {
@@ -35,8 +36,14 @@ function toGleifSearchResults(
   }));
 }
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
+export async function GET(
+  request: NextRequest,
+): Promise<NextResponse<SearchApiResponse>> {
   const query = request.nextUrl.searchParams.get("q")?.trim() ?? "";
+
+  if (query.length === 0) {
+    return NextResponse.json({ ok: true, results: [] });
+  }
 
   const [finnhubResult, companiesHouseResult, gleifResult] = await Promise.all([
     searchSymbols(query),
@@ -77,7 +84,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   return NextResponse.json({
     ok: true,
-    placeholder: true,
     results: [...finnhub, ...companiesHouse, ...gleif],
   });
 }
