@@ -248,6 +248,16 @@ export type MonitorItem = {
   readonly label: string;
   readonly status: "idle" | "watching";
   readonly updatedAt: string;
+  readonly snapshot?: {
+    readonly confidenceScore: number;
+    readonly confidenceLevel: ConfidenceLevel;
+    readonly supported: number;
+    readonly partial: number;
+    readonly limited: number;
+    readonly sourceCount: number;
+    readonly metricCount: number;
+    readonly updatedAt: string;
+  } | null;
 };
 
 export type DataSourceResult<T> = {
@@ -711,6 +721,18 @@ export type SearchApiResponse = {
 export type MonitorApiResponse = {
   readonly ok: boolean;
   readonly items: readonly MonitorItem[];
+  readonly summary?: {
+    readonly watchedCount: number;
+    readonly withSnapshotsCount: number;
+    readonly averageConfidence: number | null;
+    readonly averageSources: number | null;
+    readonly averageMetrics: number | null;
+    readonly supportedSections: number;
+    readonly partialSections: number;
+    readonly limitedSections: number;
+    readonly strongestCompany: string | null;
+    readonly weakestCompany: string | null;
+  };
   readonly error?: string;
 };
 

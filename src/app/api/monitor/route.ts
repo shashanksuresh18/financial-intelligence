@@ -1,19 +1,137 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
-import type { MonitorApiResponse, MonitorItem } from "@/lib/types";
+import type { AnalysisReport, MonitorApiResponse, MonitorItem } from "@/lib/types";
 
-async function getAllItems(): Promise<readonly MonitorItem[]> {
+function summarizeSections(report: AnalysisReport): {
+  readonly supported: number;
+  readonly partial: number;
+  readonly limited: number;
+} {
+  return report.sectionAudit.reduce(
+    (summary, item) => ({
+      supported: summary.supported + (item.status === "supported" ? 1 : 0),
+      partial: summary.partial + (item.status === "partial" ? 1 : 0),
+      limited: summary.limited + (item.status === "limited" ? 1 : 0),
+    }),
+    { supported: 0, partial: 0, limited: 0 },
+  );
+}
+
+async function buildMonitorPayload(): Promise<{
+  readonly items: readonly MonitorItem[];
+  readonly summary: NonNullable<MonitorApiResponse["summary"]>;
+}> {
   const records = await db.monitoredCompany.findMany({
     orderBy: { createdAt: "desc" },
   });
 
-  return records.map((record) => ({
-    id: record.id,
-    label: record.companyName,
-    status: record.status as "idle" | "watching",
-    updatedAt: record.updatedAt.toISOString(),
-  }));
+  const items = await Promise.all(
+    records.map(async (record) => {
+      const cached = await db.analysisCache.findUnique({
+        where: { companyId: record.companyName.toLowerCase() },
+      });
+      const parsedReport =
+        cached === null ? null : JSON.parse(cached.report) as AnalysisReport;
+      const sectionSummary =
+        parsedReport === null ? null : summarizeSections(parsedReport);
+
+      return {
+        id: record.id,
+        label: record.companyName,
+        status: record.status as "idle" | "watching",
+        updatedAt: record.updatedAt.toISOString(),
+        snapshot:
+          parsedReport === null || sectionSummary === null
+            ? null
+            : {
+              confidenceScore: parsedReport.confidence.score,
+              confidenceLevel: parsedReport.confidence.level,
+              supported: sectionSummary.supported,
+              partial: sectionSummary.partial,
+              limited: sectionSummary.limited,
+              sourceCount: parsedReport.sources.length,
+              metricCount: parsedReport.metrics.length,
+              updatedAt: parsedReport.updatedAt,
+            },
+      } satisfies MonitorItem;
+    }),
+  );
+
+  const itemsWithSnapshots = items.filter(
+    (item): item is MonitorItem & { snapshot: NonNullable<MonitorItem["snapshot"]> } =>
+      item.snapshot !== null && item.snapshot !== undefined,
+  );
+  const averageConfidence =
+    itemsWithSnapshots.length === 0
+      ? null
+      : Math.round(
+        itemsWithSnapshots.reduce(
+          (total, item) => total + item.snapshot.confidenceScore,
+          0,
+        ) / itemsWithSnapshots.length,
+      );
+  const averageSources =
+    itemsWithSnapshots.length === 0
+      ? null
+      : Number(
+        (
+          itemsWithSnapshots.reduce(
+            (total, item) => total + item.snapshot.sourceCount,
+            0,
+          ) / itemsWithSnapshots.length
+        ).toFixed(1),
+      );
+  const averageMetrics =
+    itemsWithSnapshots.length === 0
+      ? null
+      : Number(
+        (
+          itemsWithSnapshots.reduce(
+            (total, item) => total + item.snapshot.metricCount,
+            0,
+          ) / itemsWithSnapshots.length
+        ).toFixed(1),
+      );
+  const strongest =
+    itemsWithSnapshots.length === 0
+      ? null
+      : [...itemsWithSnapshots].sort(
+        (left, right) =>
+          right.snapshot.confidenceScore - left.snapshot.confidenceScore,
+      )[0];
+  const weakest =
+    itemsWithSnapshots.length === 0
+      ? null
+      : [...itemsWithSnapshots].sort(
+        (left, right) =>
+          left.snapshot.confidenceScore - right.snapshot.confidenceScore,
+      )[0];
+
+  return {
+    items,
+    summary: {
+      watchedCount: items.length,
+      withSnapshotsCount: itemsWithSnapshots.length,
+      averageConfidence,
+      averageSources,
+      averageMetrics,
+      supportedSections: itemsWithSnapshots.reduce(
+        (total, item) => total + item.snapshot.supported,
+        0,
+      ),
+      partialSections: itemsWithSnapshots.reduce(
+        (total, item) => total + item.snapshot.partial,
+        0,
+      ),
+      limitedSections: itemsWithSnapshots.reduce(
+        (total, item) => total + item.snapshot.limited,
+        0,
+      ),
+      strongestCompany: strongest?.label ?? null,
+      weakestCompany: weakest?.label ?? null,
+    },
+  };
 }
 
 function isPrismaNotFoundError(error: unknown): boolean {
@@ -27,7 +145,9 @@ function isPrismaNotFoundError(error: unknown): boolean {
 
 export async function GET(): Promise<NextResponse<MonitorApiResponse>> {
   try {
-    return NextResponse.json({ ok: true, items: await getAllItems() });
+    const payload = await buildMonitorPayload();
+
+    return NextResponse.json({ ok: true, ...payload });
   } catch (error) {
     console.error("[monitor] failed to load items", { error });
 
@@ -73,7 +193,9 @@ export async function POST(
       });
     }
 
-    return NextResponse.json({ ok: true, items: await getAllItems() });
+    const payload = await buildMonitorPayload();
+
+    return NextResponse.json({ ok: true, ...payload });
   } catch (error) {
     console.error("[monitor] failed to create item", {
       companyName,
@@ -114,7 +236,9 @@ export async function DELETE(
   }
 
   try {
-    return NextResponse.json({ ok: true, items: await getAllItems() });
+    const payload = await buildMonitorPayload();
+
+    return NextResponse.json({ ok: true, ...payload });
   } catch (error) {
     console.error("[monitor] failed to reload items", { id, error });
 

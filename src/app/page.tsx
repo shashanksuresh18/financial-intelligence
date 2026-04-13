@@ -4,6 +4,7 @@ import { type JSX, useEffect, useRef, useState } from "react";
 
 import ActiveSnapshotPanel from "@/components/ActiveSnapshotPanel";
 import MonitorList from "@/components/MonitorList";
+import PortfolioOverviewPanel from "@/components/PortfolioOverviewPanel";
 import Report from "@/components/Report";
 import SearchBar from "@/components/SearchBar";
 import type {
@@ -18,6 +19,8 @@ import type {
 const MIN_QUERY_LENGTH = 2;
 const SEARCH_DEBOUNCE_MS = 300;
 const ANALYSIS_TIMEOUT_MS = 45000;
+
+type MonitorSortKey = "confidence" | "freshness" | "evidence-depth";
 
 function getResultMeta(result: SearchResult): string {
   const parts = [
@@ -38,6 +41,11 @@ export default function Home(): JSX.Element {
   const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [monitorItems, setMonitorItems] = useState<readonly MonitorItem[]>([]);
+  const [monitorSummary, setMonitorSummary] = useState<
+    MonitorApiResponse["summary"]
+  >();
+  const [monitorSortKey, setMonitorSortKey] =
+    useState<MonitorSortKey>("confidence");
   const [error, setError] = useState<string | null>(null);
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -53,6 +61,7 @@ export default function Home(): JSX.Element {
 
         if (data.ok) {
           setMonitorItems(data.items);
+          setMonitorSummary(data.summary);
         }
       } catch {
         // Monitor list is non-critical on first paint.
@@ -270,6 +279,7 @@ export default function Home(): JSX.Element {
       }
 
       setMonitorItems(data.items);
+      setMonitorSummary(data.summary);
     } catch {
       setError("Failed to update monitor list");
     }
@@ -310,6 +320,7 @@ export default function Home(): JSX.Element {
       }
 
       setMonitorItems(data.items);
+      setMonitorSummary(data.summary);
 
       if (loadedReportLabel === item.label) {
         clearLoadedReport();
@@ -510,7 +521,10 @@ export default function Home(): JSX.Element {
                 void handleMonitorRemove(item);
               }}
               onSelect={handleMonitorSelect}
+              onSortChange={setMonitorSortKey}
+              sortKey={monitorSortKey}
             />
+            <PortfolioOverviewPanel summary={monitorSummary} />
             <ActiveSnapshotPanel
               isAnalyzing={isAnalyzing}
               report={report}
