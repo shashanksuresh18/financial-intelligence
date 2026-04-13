@@ -8,6 +8,7 @@ type SearchBarProps = {
   readonly placeholder?: string;
   readonly onSearch?: (query: string) => void;
   readonly onSubmit?: (query: string) => void;
+  readonly disabled?: boolean;
 };
 
 export function SearchBar({
@@ -16,6 +17,7 @@ export function SearchBar({
   placeholder = "Search for a company",
   onSearch,
   onSubmit,
+  disabled = false,
 }: SearchBarProps) {
   const handleChange = (event: ChangeEvent<HTMLInputElement>): void => {
     onSearch?.(event.target.value);
@@ -60,6 +62,7 @@ export function SearchBar({
       <input
         className="min-w-0 flex-1 border-0 bg-transparent px-1 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
         defaultValue={defaultValue}
+        disabled={disabled}
         name="q"
         onChange={onSearch ? handleChange : undefined}
         placeholder={placeholder}
@@ -67,7 +70,8 @@ export function SearchBar({
         type="search"
       />
       <button
-        className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:border-emerald-300/40 hover:bg-emerald-400/15"
+        className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:border-emerald-300/40 hover:bg-emerald-400/15 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500"
+        disabled={disabled}
         type="submit"
       >
         Search

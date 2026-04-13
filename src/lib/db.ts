@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
+import { createClient, type Client, type ResultSet } from "@libsql/client";
+
 type MonitoredCompanyRow = {
   readonly id: string;
   readonly companyName: string;
@@ -76,13 +78,23 @@ type MonitoredCompanyDeleteArgs = {
   };
 };
 
-type StorageMode = "sqlite" | "memory";
+type StorageMode = "turso" | "sqlite" | "memory";
+
+type StorageHandlers<T> = {
+  readonly turso: () => Promise<T>;
+  readonly sqlite: () => Promise<T> | T;
+  readonly memory: () => Promise<T> | T;
+};
 
 const SQLITE_BINARY = process.platform === "win32" ? "sqlite3.exe" : "sqlite3";
 const DATABASE_URL = normalizeDatabaseUrl(
   process.env.DATABASE_URL ?? "file:./prisma/dev.db",
 );
 const DATABASE_PATH = resolveDatabasePath(DATABASE_URL);
+const TURSO_DATABASE_URL = normalizeOptionalEnv(process.env.TURSO_DATABASE_URL);
+const TURSO_AUTH_TOKEN = normalizeOptionalEnv(process.env.TURSO_AUTH_TOKEN);
+const HAS_TURSO_CONFIG =
+  TURSO_DATABASE_URL !== null && TURSO_AUTH_TOKEN !== null;
 const SHOULD_AVOID_LOCAL_SQLITE =
   process.env.VERCEL === "1" && DATABASE_PATH !== null;
 const SQLITE_SCHEMA = `
@@ -106,6 +118,8 @@ const SQLITE_SCHEMA = `
 
 let storageMode: StorageMode | null = null;
 let didLogMemoryFallback = false;
+let didLogTursoSelection = false;
+let tursoClient: Client | null = null;
 
 const memoryStore = {
   monitoredCompanies: new Map<string, MonitoredCompanyRow>(),
@@ -114,6 +128,16 @@ const memoryStore = {
 
 function normalizeDatabaseUrl(url: string): string {
   return url.trim().replace(/^['"]|['"]$/g, "");
+}
+
+function normalizeOptionalEnv(value: string | undefined): string | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  const normalized = value.trim().replace(/^['"]|['"]$/g, "");
+
+  return normalized.length > 0 ? normalized : null;
 }
 
 function resolveDatabasePath(databaseUrl: string): string | null {
@@ -172,6 +196,7 @@ function logMemoryFallback(reason: string, error?: unknown): void {
   console.warn("[db] falling back to in-memory storage", {
     reason,
     databaseUrl: DATABASE_URL,
+    tursoConfigured: HAS_TURSO_CONFIG,
     runtime: process.env.VERCEL === "1" ? "vercel" : "node",
     error: error === undefined ? null : serializeError(error),
   });
@@ -212,9 +237,91 @@ function querySqliteRows<T>(sql: string): readonly T[] {
   return JSON.parse(output) as readonly T[];
 }
 
-function ensureStorageMode(): void {
+function getTursoClient(): Client {
+  if (!HAS_TURSO_CONFIG) {
+    throw new Error("Turso configuration is incomplete.");
+  }
+
+  if (tursoClient === null) {
+    tursoClient = createClient({
+      url: TURSO_DATABASE_URL,
+      authToken: TURSO_AUTH_TOKEN,
+    });
+  }
+
+  return tursoClient;
+}
+
+function resultRows<T>(resultSet: ResultSet): readonly T[] {
+  return resultSet.rows.map((row) => row as unknown as T);
+}
+
+async function initializeTursoStorage(): Promise<void> {
+  const client = getTursoClient();
+
+  await client.executeMultiple(SQLITE_SCHEMA);
+  storageMode = "turso";
+
+  if (!didLogTursoSelection) {
+    didLogTursoSelection = true;
+    console.info("[db] using Turso storage", {
+      url: TURSO_DATABASE_URL,
+      runtime: process.env.VERCEL === "1" ? "vercel" : "node",
+    });
+  }
+}
+
+function tryInitializeSqliteStorage(reason: string, error?: unknown): boolean {
+  if (SHOULD_AVOID_LOCAL_SQLITE || DATABASE_PATH === null) {
+    return false;
+  }
+
+  try {
+    mkdirSync(path.dirname(DATABASE_PATH), { recursive: true });
+    runSqliteStatement(SQLITE_SCHEMA);
+    storageMode = "sqlite";
+
+    if (error !== undefined) {
+      console.warn("[db] falling back to local SQLite storage", {
+        reason,
+        databaseUrl: DATABASE_URL,
+        error: serializeError(error),
+      });
+    }
+
+    return true;
+  } catch (sqliteError) {
+    console.warn("[db] local SQLite fallback failed", {
+      reason,
+      databaseUrl: DATABASE_URL,
+      error: serializeError(sqliteError),
+    });
+
+    return false;
+  }
+}
+
+function activateBestFallback(reason: string, error?: unknown): void {
+  if (tryInitializeSqliteStorage(reason, error)) {
+    return;
+  }
+
+  activateMemoryStorage(reason, error);
+}
+
+async function ensureStorageMode(): Promise<void> {
   if (storageMode !== null) {
     return;
+  }
+
+  if (HAS_TURSO_CONFIG) {
+    try {
+      await initializeTursoStorage();
+      return;
+    } catch (error) {
+      activateBestFallback("Turso initialization failed.", error);
+      return;
+    }
   }
 
   if (SHOULD_AVOID_LOCAL_SQLITE) {
@@ -226,38 +333,50 @@ function ensureStorageMode(): void {
 
   if (DATABASE_PATH === null) {
     activateMemoryStorage(
-      "DATABASE_URL is not a file-based SQLite path, so the local CLI storage backend is unavailable.",
+      "DATABASE_URL is not a file-based SQLite path, so no local storage backend is available.",
     );
     return;
   }
 
-  try {
-    mkdirSync(path.dirname(DATABASE_PATH), { recursive: true });
-    runSqliteStatement(SQLITE_SCHEMA);
-    storageMode = "sqlite";
-  } catch (error) {
-    activateMemoryStorage("SQLite initialization failed.", error);
+  if (!tryInitializeSqliteStorage("Local SQLite initialization failed.")) {
+    activateMemoryStorage("SQLite initialization failed.");
   }
 }
 
-function withStorageFallback<T>(
+async function runForCurrentStorage<T>(
   operation: string,
-  sqliteOperation: () => T,
-  memoryOperation: () => T,
-): T {
-  ensureStorageMode();
+  handlers: StorageHandlers<T>,
+): Promise<T> {
+  if (storageMode === "turso") {
+    try {
+      return await handlers.turso();
+    } catch (error) {
+      activateBestFallback(`Turso operation failed during ${operation}.`, error);
 
-  if (storageMode === "memory") {
-    return memoryOperation();
+      return runForCurrentStorage(operation, handlers);
+    }
   }
 
-  try {
-    return sqliteOperation();
-  } catch (error) {
-    activateMemoryStorage(`SQLite operation failed during ${operation}.`, error);
+  if (storageMode === "sqlite") {
+    try {
+      return await handlers.sqlite();
+    } catch (error) {
+      activateMemoryStorage(`SQLite operation failed during ${operation}.`, error);
 
-    return memoryOperation();
+      return runForCurrentStorage(operation, handlers);
+    }
   }
+
+  return handlers.memory();
+}
+
+async function withStorageFallback<T>(
+  operation: string,
+  handlers: StorageHandlers<T>,
+): Promise<T> {
+  await ensureStorageMode();
+
+  return runForCurrentStorage(operation, handlers);
 }
 
 function toMonitoredCompanyRow(row: {
@@ -321,62 +440,105 @@ const analysisCache = {
   async findUnique(args: AnalysisCacheFindUniqueArgs): Promise<AnalysisCacheRow | null> {
     return withStorageFallback(
       "analysisCache.findUnique",
-      () => {
-        const rows = querySqliteRows<{
-          readonly id: string;
-          readonly companyId: string;
-          readonly report: string;
-          readonly createdAt: string;
-          readonly expiresAt: string;
-        }>(
-          `
-            SELECT id, companyId, report, createdAt, expiresAt
-            FROM AnalysisCache
-            WHERE companyId = ${sqlString(args.where.companyId)}
-            LIMIT 1;
-          `,
-        );
+      {
+        turso: async () => {
+          const result = await getTursoClient().execute(
+            `
+              SELECT id, companyId, report, createdAt, expiresAt
+              FROM AnalysisCache
+              WHERE companyId = ?
+              LIMIT 1;
+            `,
+            [args.where.companyId],
+          );
+          const row = resultRows<{
+            readonly id: string;
+            readonly companyId: string;
+            readonly report: string;
+            readonly createdAt: string;
+            readonly expiresAt: string;
+          }>(result)[0];
 
-        const row = rows[0];
+          return row === undefined ? null : toAnalysisCacheRow(row);
+        },
+        sqlite: () => {
+          const rows = querySqliteRows<{
+            readonly id: string;
+            readonly companyId: string;
+            readonly report: string;
+            readonly createdAt: string;
+            readonly expiresAt: string;
+          }>(
+            `
+              SELECT id, companyId, report, createdAt, expiresAt
+              FROM AnalysisCache
+              WHERE companyId = ${sqlString(args.where.companyId)}
+              LIMIT 1;
+            `,
+          );
+          const row = rows[0];
 
-        return row === undefined ? null : toAnalysisCacheRow(row);
+          return row === undefined ? null : toAnalysisCacheRow(row);
+        },
+        memory: () => memoryStore.analysisCache.get(args.where.companyId) ?? null,
       },
-      () => memoryStore.analysisCache.get(args.where.companyId) ?? null,
     );
   },
 
   async upsert(args: AnalysisCacheUpsertArgs): Promise<void> {
     return withStorageFallback(
       "analysisCache.upsert",
-      () => {
-        const now = new Date().toISOString();
+      {
+        turso: async () => {
+          const now = new Date().toISOString();
 
-        runSqliteStatement(`
-          INSERT INTO AnalysisCache (id, companyId, report, createdAt, expiresAt)
-          VALUES (
-            ${sqlString(randomUUID())},
-            ${sqlString(args.create.companyId)},
-            ${sqlString(args.create.report)},
-            ${sqlString(now)},
-            ${sqlDate(args.create.expiresAt)}
-          )
-          ON CONFLICT(companyId) DO UPDATE SET
-            report = ${sqlString(args.update.report)},
-            expiresAt = ${sqlDate(args.update.expiresAt)};
-        `);
-      },
-      () => {
-        const existing = memoryStore.analysisCache.get(args.where.companyId);
-        const createdAt = existing?.createdAt ?? new Date();
+          await getTursoClient().execute(
+            `
+              INSERT INTO AnalysisCache (id, companyId, report, createdAt, expiresAt)
+              VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT(companyId) DO UPDATE SET
+                report = excluded.report,
+                expiresAt = excluded.expiresAt;
+            `,
+            [
+              randomUUID(),
+              args.create.companyId,
+              args.create.report,
+              now,
+              args.create.expiresAt.toISOString(),
+            ],
+          );
+        },
+        sqlite: () => {
+          const now = new Date().toISOString();
 
-        memoryStore.analysisCache.set(args.where.companyId, {
-          id: existing?.id ?? randomUUID(),
-          companyId: args.where.companyId,
-          report: existing === undefined ? args.create.report : args.update.report,
-          createdAt,
-          expiresAt:
-            existing === undefined ? args.create.expiresAt : args.update.expiresAt,
-        });
+          runSqliteStatement(`
+            INSERT INTO AnalysisCache (id, companyId, report, createdAt, expiresAt)
+            VALUES (
+              ${sqlString(randomUUID())},
+              ${sqlString(args.create.companyId)},
+              ${sqlString(args.create.report)},
+              ${sqlString(now)},
+              ${sqlDate(args.create.expiresAt)}
+            )
+            ON CONFLICT(companyId) DO UPDATE SET
+              report = ${sqlString(args.update.report)},
+              expiresAt = ${sqlDate(args.update.expiresAt)};
+          `);
+        },
+        memory: () => {
+          const existing = memoryStore.analysisCache.get(args.where.companyId);
+          const createdAt = existing?.createdAt ?? new Date();
+
+          memoryStore.analysisCache.set(args.where.companyId, {
+            id: existing?.id ?? randomUUID(),
+            companyId: args.where.companyId,
+            report: existing === undefined ? args.create.report : args.update.report,
+            createdAt,
+            expiresAt:
+              existing === undefined ? args.create.expiresAt : args.update.expiresAt,
+          });
+        },
       },
     );
   },
@@ -386,105 +548,167 @@ const monitoredCompany = {
   async findMany(args?: MonitoredCompanyFindManyArgs): Promise<readonly MonitoredCompanyRow[]> {
     return withStorageFallback(
       "monitoredCompany.findMany",
-      () => {
-        const direction = args?.orderBy?.createdAt === "asc" ? "ASC" : "DESC";
-        const rows = querySqliteRows<{
-          readonly id: string;
-          readonly companyName: string;
-          readonly companyId: string;
-          readonly status: string;
-          readonly createdAt: string;
-          readonly updatedAt: string;
-        }>(
-          `
+      {
+        turso: async () => {
+          const direction = args?.orderBy?.createdAt === "asc" ? "ASC" : "DESC";
+          const result = await getTursoClient().execute(`
             SELECT id, companyName, companyId, status, createdAt, updatedAt
             FROM MonitoredCompany
             ORDER BY createdAt ${direction};
-          `,
-        );
+          `);
 
-        return rows.map((row) => toMonitoredCompanyRow(row));
+          return resultRows<{
+            readonly id: string;
+            readonly companyName: string;
+            readonly companyId: string;
+            readonly status: string;
+            readonly createdAt: string;
+            readonly updatedAt: string;
+          }>(result).map((row) => toMonitoredCompanyRow(row));
+        },
+        sqlite: () => {
+          const direction = args?.orderBy?.createdAt === "asc" ? "ASC" : "DESC";
+          const rows = querySqliteRows<{
+            readonly id: string;
+            readonly companyName: string;
+            readonly companyId: string;
+            readonly status: string;
+            readonly createdAt: string;
+            readonly updatedAt: string;
+          }>(
+            `
+              SELECT id, companyName, companyId, status, createdAt, updatedAt
+              FROM MonitoredCompany
+              ORDER BY createdAt ${direction};
+            `,
+          );
+
+          return rows.map((row) => toMonitoredCompanyRow(row));
+        },
+        memory: () =>
+          sortMonitoredCompanies(
+            getMemoryMonitoredCompanies(),
+            args?.orderBy?.createdAt === "asc" ? "asc" : "desc",
+          ),
       },
-      () =>
-        sortMonitoredCompanies(
-          getMemoryMonitoredCompanies(),
-          args?.orderBy?.createdAt === "asc" ? "asc" : "desc",
-        ),
     );
   },
 
   async findFirst(args: MonitoredCompanyFindFirstArgs): Promise<MonitoredCompanyRow | null> {
     return withStorageFallback(
       "monitoredCompany.findFirst",
-      () => {
-        const rows = querySqliteRows<{
-          readonly id: string;
-          readonly companyName: string;
-          readonly companyId: string;
-          readonly status: string;
-          readonly createdAt: string;
-          readonly updatedAt: string;
-        }>(
-          `
-            SELECT id, companyName, companyId, status, createdAt, updatedAt
-            FROM MonitoredCompany
-            WHERE companyId = ${sqlString(args.where.companyId)}
-            ORDER BY createdAt DESC
-            LIMIT 1;
-          `,
-        );
+      {
+        turso: async () => {
+          const result = await getTursoClient().execute(
+            `
+              SELECT id, companyName, companyId, status, createdAt, updatedAt
+              FROM MonitoredCompany
+              WHERE companyId = ?
+              ORDER BY createdAt DESC
+              LIMIT 1;
+            `,
+            [args.where.companyId],
+          );
+          const row = resultRows<{
+            readonly id: string;
+            readonly companyName: string;
+            readonly companyId: string;
+            readonly status: string;
+            readonly createdAt: string;
+            readonly updatedAt: string;
+          }>(result)[0];
 
-        const row = rows[0];
+          return row === undefined ? null : toMonitoredCompanyRow(row);
+        },
+        sqlite: () => {
+          const rows = querySqliteRows<{
+            readonly id: string;
+            readonly companyName: string;
+            readonly companyId: string;
+            readonly status: string;
+            readonly createdAt: string;
+            readonly updatedAt: string;
+          }>(
+            `
+              SELECT id, companyName, companyId, status, createdAt, updatedAt
+              FROM MonitoredCompany
+              WHERE companyId = ${sqlString(args.where.companyId)}
+              ORDER BY createdAt DESC
+              LIMIT 1;
+            `,
+          );
+          const row = rows[0];
 
-        return row === undefined ? null : toMonitoredCompanyRow(row);
+          return row === undefined ? null : toMonitoredCompanyRow(row);
+        },
+        memory: () =>
+          sortMonitoredCompanies(
+            getMemoryMonitoredCompanies().filter(
+              (row) => row.companyId === args.where.companyId,
+            ),
+            "desc",
+          )[0] ?? null,
       },
-      () =>
-        sortMonitoredCompanies(
-          getMemoryMonitoredCompanies().filter(
-            (row) => row.companyId === args.where.companyId,
-          ),
-          "desc",
-        )[0] ?? null,
     );
   },
 
   async create(args: MonitoredCompanyCreateArgs): Promise<void> {
     return withStorageFallback(
       "monitoredCompany.create",
-      () => {
-        const now = new Date().toISOString();
+      {
+        turso: async () => {
+          const now = new Date().toISOString();
 
-        runSqliteStatement(`
-          INSERT INTO MonitoredCompany (
-            id,
-            companyName,
-            companyId,
-            status,
-            createdAt,
-            updatedAt
-          )
-          VALUES (
-            ${sqlString(randomUUID())},
-            ${sqlString(args.data.companyName)},
-            ${sqlString(args.data.companyId)},
-            'idle',
-            ${sqlString(now)},
-            ${sqlString(now)}
+          await getTursoClient().execute(
+            `
+              INSERT INTO MonitoredCompany (
+                id,
+                companyName,
+                companyId,
+                status,
+                createdAt,
+                updatedAt
+              )
+              VALUES (?, ?, ?, 'idle', ?, ?);
+            `,
+            [randomUUID(), args.data.companyName, args.data.companyId, now, now],
           );
-        `);
-      },
-      () => {
-        const now = new Date();
-        const id = randomUUID();
+        },
+        sqlite: () => {
+          const now = new Date().toISOString();
 
-        memoryStore.monitoredCompanies.set(id, {
-          id,
-          companyName: args.data.companyName,
-          companyId: args.data.companyId,
-          status: "idle",
-          createdAt: now,
-          updatedAt: now,
-        });
+          runSqliteStatement(`
+            INSERT INTO MonitoredCompany (
+              id,
+              companyName,
+              companyId,
+              status,
+              createdAt,
+              updatedAt
+            )
+            VALUES (
+              ${sqlString(randomUUID())},
+              ${sqlString(args.data.companyName)},
+              ${sqlString(args.data.companyId)},
+              'idle',
+              ${sqlString(now)},
+              ${sqlString(now)}
+            );
+          `);
+        },
+        memory: () => {
+          const now = new Date();
+          const id = randomUUID();
+
+          memoryStore.monitoredCompanies.set(id, {
+            id,
+            companyName: args.data.companyName,
+            companyId: args.data.companyId,
+            status: "idle",
+            createdAt: now,
+            updatedAt: now,
+          });
+        },
       },
     );
   },
@@ -492,31 +716,48 @@ const monitoredCompany = {
   async update(args: MonitoredCompanyUpdateArgs): Promise<void> {
     return withStorageFallback(
       "monitoredCompany.update",
-      () => {
-        const now = new Date().toISOString();
+      {
+        turso: async () => {
+          const now = new Date().toISOString();
 
-        runSqliteStatement(`
-          UPDATE MonitoredCompany
-          SET
-            companyName = ${sqlString(args.data.companyName)},
-            companyId = ${sqlString(args.data.companyId)},
-            updatedAt = ${sqlString(now)}
-          WHERE id = ${sqlString(args.where.id)};
-        `);
-      },
-      () => {
-        const existing = memoryStore.monitoredCompanies.get(args.where.id);
+          await getTursoClient().execute(
+            `
+              UPDATE MonitoredCompany
+              SET
+                companyName = ?,
+                companyId = ?,
+                updatedAt = ?
+              WHERE id = ?;
+            `,
+            [args.data.companyName, args.data.companyId, now, args.where.id],
+          );
+        },
+        sqlite: () => {
+          const now = new Date().toISOString();
 
-        if (existing === undefined) {
-          throw createNotFoundError("MonitoredCompany not found");
-        }
+          runSqliteStatement(`
+            UPDATE MonitoredCompany
+            SET
+              companyName = ${sqlString(args.data.companyName)},
+              companyId = ${sqlString(args.data.companyId)},
+              updatedAt = ${sqlString(now)}
+            WHERE id = ${sqlString(args.where.id)};
+          `);
+        },
+        memory: () => {
+          const existing = memoryStore.monitoredCompanies.get(args.where.id);
 
-        memoryStore.monitoredCompanies.set(args.where.id, {
-          ...existing,
-          companyName: args.data.companyName,
-          companyId: args.data.companyId,
-          updatedAt: new Date(),
-        });
+          if (existing === undefined) {
+            throw createNotFoundError("MonitoredCompany not found");
+          }
+
+          memoryStore.monitoredCompanies.set(args.where.id, {
+            ...existing,
+            companyName: args.data.companyName,
+            companyId: args.data.companyId,
+            updatedAt: new Date(),
+          });
+        },
       },
     );
   },
@@ -524,25 +765,41 @@ const monitoredCompany = {
   async delete(args: MonitoredCompanyDeleteArgs): Promise<void> {
     return withStorageFallback(
       "monitoredCompany.delete",
-      () => {
-        const rows = querySqliteRows<{ readonly id: string }>(
-          `
-            DELETE FROM MonitoredCompany
-            WHERE id = ${sqlString(args.where.id)}
-            RETURNING id;
-          `,
-        );
+      {
+        turso: async () => {
+          const result = await getTursoClient().execute(
+            `
+              DELETE FROM MonitoredCompany
+              WHERE id = ?
+              RETURNING id;
+            `,
+            [args.where.id],
+          );
 
-        if (rows.length === 0) {
-          throw createNotFoundError("MonitoredCompany not found");
-        }
-      },
-      () => {
-        const didDelete = memoryStore.monitoredCompanies.delete(args.where.id);
+          if (result.rows.length === 0) {
+            throw createNotFoundError("MonitoredCompany not found");
+          }
+        },
+        sqlite: () => {
+          const rows = querySqliteRows<{ readonly id: string }>(
+            `
+              DELETE FROM MonitoredCompany
+              WHERE id = ${sqlString(args.where.id)}
+              RETURNING id;
+            `,
+          );
 
-        if (!didDelete) {
-          throw createNotFoundError("MonitoredCompany not found");
-        }
+          if (rows.length === 0) {
+            throw createNotFoundError("MonitoredCompany not found");
+          }
+        },
+        memory: () => {
+          const didDelete = memoryStore.monitoredCompanies.delete(args.where.id);
+
+          if (!didDelete) {
+            throw createNotFoundError("MonitoredCompany not found");
+          }
+        },
       },
     );
   },

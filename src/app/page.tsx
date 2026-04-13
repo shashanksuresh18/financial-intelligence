@@ -18,7 +18,14 @@ import type {
 
 const MIN_QUERY_LENGTH = 2;
 const SEARCH_DEBOUNCE_MS = 300;
-const ANALYSIS_TIMEOUT_MS = 45000;
+const ANALYSIS_TIMEOUT_MS = 120000;
+const ANALYSIS_STAGE_INTERVAL_MS = 25000;
+const ANALYSIS_STAGE_MESSAGES = [
+  "Resolving the company across search, filing, and registry sources.",
+  "Collecting market data, registry context, and filing-backed evidence.",
+  "Generating the institutional note and reconciling evidence coverage.",
+  "Finalizing the report payload and saving the latest snapshot.",
+] as const;
 
 type MonitorSortKey = "confidence" | "freshness" | "evidence-depth";
 
@@ -46,6 +53,8 @@ export default function Home(): JSX.Element {
   >();
   const [monitorSortKey, setMonitorSortKey] =
     useState<MonitorSortKey>("confidence");
+  const [analysisStartedAt, setAnalysisStartedAt] = useState<number | null>(null);
+  const [analysisStageIndex, setAnalysisStageIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -78,6 +87,29 @@ export default function Home(): JSX.Element {
       analysisAbortRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isAnalyzing || analysisStartedAt === null) {
+      return;
+    }
+
+    const updateStage = (): void => {
+      const elapsed = Date.now() - analysisStartedAt;
+      const nextStage = Math.min(
+        ANALYSIS_STAGE_MESSAGES.length - 1,
+        Math.floor(elapsed / ANALYSIS_STAGE_INTERVAL_MS),
+      );
+
+      setAnalysisStageIndex(nextStage);
+    };
+
+    updateStage();
+    const interval = setInterval(updateStage, 1500);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [analysisStartedAt, isAnalyzing]);
 
   const runSearch = async (
     nextQuery: string,
@@ -144,6 +176,8 @@ export default function Home(): JSX.Element {
     setSearchResults([]);
     setIsSearching(false);
     setIsAnalyzing(true);
+    setAnalysisStartedAt(Date.now());
+    setAnalysisStageIndex(0);
     setPendingQuery(analysisQuery);
     setError(null);
 
@@ -178,7 +212,7 @@ export default function Home(): JSX.Element {
       if (requestId === latestAnalysisRequestRef.current) {
         if (error instanceof Error && error.name === "AbortError") {
           setError(
-            "Analysis timed out before the refresh completed. The previous report is still loaded.",
+            "Analysis is taking longer than expected on the hosted environment. Please wait a bit and try again.",
           );
         } else {
           setError("Analysis failed");
@@ -189,6 +223,7 @@ export default function Home(): JSX.Element {
 
       if (requestId === latestAnalysisRequestRef.current) {
         setIsAnalyzing(false);
+        setAnalysisStartedAt(null);
         setPendingQuery(null);
 
         if (analysisAbortRef.current === controller) {
@@ -377,6 +412,7 @@ export default function Home(): JSX.Element {
 
             <div className="relative mt-8">
               <SearchBar
+                disabled={isAnalyzing}
                 onSearch={handleSearch}
                 onSubmit={handleSubmit}
                 placeholder="Search any company..."
@@ -478,8 +514,44 @@ export default function Home(): JSX.Element {
         <section className="grid gap-8 xl:grid-cols-[minmax(0,1.35fr)_24rem]">
           <div className="space-y-4">
             {isAnalyzing ? (
-              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
-                Building analysis report...
+              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-5 py-4 text-sm text-emerald-100">
+                <div className="flex items-start gap-4">
+                  <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/12">
+                    <svg
+                      aria-hidden="true"
+                      className="h-5 w-5 animate-spin text-emerald-200"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                      />
+                      <path
+                        className="opacity-90"
+                        d="M22 12a10 10 0 0 1-10 10"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeWidth="3"
+                      />
+                    </svg>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-emerald-50">
+                      Building analysis report for {pendingQuery ?? "the current query"}...
+                    </p>
+                    <p className="mt-1 leading-6 text-emerald-100/85">
+                      {ANALYSIS_STAGE_MESSAGES[analysisStageIndex]}
+                    </p>
+                    <p className="mt-2 text-xs uppercase tracking-[0.16em] text-emerald-200/70">
+                      Hosted runs can take up to 2 minutes on multi-source research workflows.
+                    </p>
+                  </div>
+                </div>
               </div>
             ) : null}
 
@@ -495,6 +567,40 @@ export default function Home(): JSX.Element {
                 onRefresh={handleRefresh}
                 report={report}
               />
+            ) : isAnalyzing ? (
+              <section className="rounded-[2rem] border border-zinc-800 bg-zinc-950/60 px-6 py-8 shadow-[0_24px_80px_-48px_rgba(0,0,0,0.95)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                  Analysis In Progress
+                </p>
+                <h2 className="mt-4 text-2xl font-semibold tracking-tight text-zinc-50">
+                  We&apos;re assembling the dashboard report for {pendingQuery ?? "your selected company"}.
+                </h2>
+                <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400">
+                  The hosted demo can take a little longer while it resolves the company,
+                  gathers evidence, and generates the institutional note. You can keep this
+                  page open while the report is being built.
+                </p>
+                <div className="mt-8 grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+                    <div className="h-3 w-28 rounded-full bg-zinc-800" />
+                    <div className="mt-5 h-10 w-3/4 rounded-2xl bg-zinc-800/80" />
+                    <div className="mt-4 space-y-3">
+                      <div className="h-3 w-full rounded-full bg-zinc-900" />
+                      <div className="h-3 w-5/6 rounded-full bg-zinc-900" />
+                      <div className="h-3 w-3/5 rounded-full bg-zinc-900" />
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+                    <div className="h-3 w-32 rounded-full bg-zinc-800" />
+                    <div className="mt-5 grid grid-cols-2 gap-3">
+                      <div className="h-20 rounded-2xl bg-zinc-900" />
+                      <div className="h-20 rounded-2xl bg-zinc-900" />
+                      <div className="h-20 rounded-2xl bg-zinc-900" />
+                      <div className="h-20 rounded-2xl bg-zinc-900" />
+                    </div>
+                  </div>
+                </div>
+              </section>
             ) : (
               <section className="rounded-[2rem] border border-dashed border-zinc-800 bg-zinc-950/60 px-6 py-10">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
