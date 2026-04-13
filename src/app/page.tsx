@@ -18,7 +18,7 @@ import type {
 
 const MIN_QUERY_LENGTH = 2;
 const SEARCH_DEBOUNCE_MS = 300;
-const ANALYSIS_TIMEOUT_MS = 120000;
+const ANALYSIS_TIMEOUT_MS = 180000;
 const ANALYSIS_STAGE_INTERVAL_MS = 25000;
 const ANALYSIS_STAGE_MESSAGES = [
   "Resolving the company across search, filing, and registry sources.",
@@ -212,7 +212,7 @@ export default function Home(): JSX.Element {
       if (requestId === latestAnalysisRequestRef.current) {
         if (error instanceof Error && error.name === "AbortError") {
           setError(
-            "Analysis is taking longer than expected on the hosted environment. Please wait a bit and try again.",
+            "Analysis is taking longer than expected on the hosted environment. Please wait a bit and try again, or retry with a public company first.",
           );
         } else {
           setError("Analysis failed");
@@ -548,7 +548,7 @@ export default function Home(): JSX.Element {
                       {ANALYSIS_STAGE_MESSAGES[analysisStageIndex]}
                     </p>
                     <p className="mt-2 text-xs uppercase tracking-[0.16em] text-emerald-200/70">
-                      Hosted runs can take up to 2 minutes on multi-source research workflows.
+                      Hosted runs can take up to 3 minutes on multi-source and private-company research workflows.
                     </p>
                   </div>
                 </div>
@@ -579,6 +579,10 @@ export default function Home(): JSX.Element {
                   The hosted demo can take a little longer while it resolves the company,
                   gathers evidence, and generates the institutional note. You can keep this
                   page open while the report is being built.
+                </p>
+                <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-500">
+                  First-run private or registry-led names are often the slowest because the
+                  hosted app is warming up external sources and saving the initial snapshot.
                 </p>
                 <div className="mt-8 grid gap-4 md:grid-cols-2">
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
