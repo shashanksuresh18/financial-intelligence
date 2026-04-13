@@ -47,7 +47,8 @@ export async function POST(
   >;
   const companyName =
     typeof body.companyName === "string" ? body.companyName.trim() : "";
-  const companyId = typeof body.companyId === "string" ? body.companyId.trim() : "";
+  const companyId =
+    typeof body.companyId === "string" ? body.companyId.trim() : "";
 
   if (companyName.length === 0 || companyId.length === 0) {
     return NextResponse.json(
@@ -57,9 +58,20 @@ export async function POST(
   }
 
   try {
-    await db.monitoredCompany.create({
-      data: { companyName, companyId },
+    const existing = await db.monitoredCompany.findFirst({
+      where: { companyId },
     });
+
+    if (existing === null) {
+      await db.monitoredCompany.create({
+        data: { companyName, companyId },
+      });
+    } else {
+      await db.monitoredCompany.update({
+        where: { id: existing.id },
+        data: { companyName, companyId },
+      });
+    }
 
     return NextResponse.json({ ok: true, items: await getAllItems() });
   } catch (error) {

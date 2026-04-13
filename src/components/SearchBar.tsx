@@ -7,6 +7,7 @@ type SearchBarProps = {
   readonly defaultValue?: string;
   readonly placeholder?: string;
   readonly onSearch?: (query: string) => void;
+  readonly onSubmit?: (query: string) => void;
 };
 
 export function SearchBar({
@@ -14,20 +15,25 @@ export function SearchBar({
   defaultValue = "",
   placeholder = "Search for a company",
   onSearch,
+  onSubmit,
 }: SearchBarProps) {
   const handleChange = (event: ChangeEvent<HTMLInputElement>): void => {
     onSearch?.(event.target.value);
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    if (onSearch) {
+    if (onSubmit || onSearch) {
       event.preventDefault();
 
       const formData = new FormData(event.currentTarget);
       const query = formData.get("q");
 
       if (typeof query === "string") {
-        onSearch(query);
+        if (onSubmit) {
+          onSubmit(query);
+        } else {
+          onSearch?.(query);
+        }
       }
     }
   };
@@ -36,7 +42,7 @@ export function SearchBar({
     <form
       action={onSearch ? undefined : action}
       className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-3 shadow-[0_20px_80px_-40px_rgba(15,23,42,0.95)] backdrop-blur"
-      onSubmit={onSearch ? handleSubmit : undefined}
+      onSubmit={onSubmit || onSearch ? handleSubmit : undefined}
     >
       <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400">
         <svg

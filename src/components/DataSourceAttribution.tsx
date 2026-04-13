@@ -11,7 +11,11 @@ const SOURCE_DETAILS: Record<
 > = {
   finnhub: {
     label: "Finnhub",
-    note: "Market pricing, quotes, and analyst recommendation data.",
+    note: "Market pricing, valuation metrics, analyst recommendation data, earnings history, and insider activity.",
+  },
+  fmp: {
+    label: "FMP",
+    note: "Historical multiples, forward estimates, peer comparison, enterprise values, and price-target consensus.",
   },
   "sec-edgar": {
     label: "SEC EDGAR",
@@ -19,7 +23,7 @@ const SOURCE_DETAILS: Record<
   },
   "companies-house": {
     label: "Companies House",
-    note: "UK registry records and corporate status information.",
+    note: "UK registry records, corporate status, company-profile metadata, and recent accounts filing history.",
   },
   gleif: {
     label: "GLEIF",
@@ -27,7 +31,7 @@ const SOURCE_DETAILS: Record<
   },
   "claude-fallback": {
     label: "Claude Fallback",
-    note: "AI web search fallback. Verify figures against primary sources.",
+    note: "AI web-search enrichment for public-web company facts, narrative context, and hard-to-source private-company metrics. Verify figures against primary filings and official company documents.",
   },
 };
 

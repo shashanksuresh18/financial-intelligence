@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { rankAndDedupeSearchResults } from "@/lib/company-search";
 import type { GleifRecord, SearchResult } from "@/lib/types";
 
 import { fetchCompaniesHouseData } from "@/lib/datasources/companies-house";
@@ -84,6 +85,10 @@ export async function GET(
 
   return NextResponse.json({
     ok: true,
-    results: [...finnhub, ...companiesHouse, ...gleif],
+    results: rankAndDedupeSearchResults(query, [
+      { source: "finnhub", results: finnhub },
+      { source: "companies-house", results: companiesHouse },
+      { source: "gleif", results: gleif },
+    ]),
   });
 }

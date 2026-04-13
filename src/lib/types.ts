@@ -1,11 +1,19 @@
 export type DataSource =
   | "finnhub"
+  | "fmp"
   | "sec-edgar"
   | "companies-house"
   | "gleif"
   | "claude-fallback";
 
 export type ConfidenceLevel = "low" | "medium" | "high";
+
+export type ConfidenceComponent = {
+  readonly key: "identity" | "financials" | "street" | "freshness";
+  readonly label: string;
+  readonly score: number;
+  readonly rationale: string;
+};
 
 export type FiscalPeriod = "Q1" | "Q2" | "Q3" | "Q4" | "FY";
 
@@ -25,6 +33,7 @@ export type ConfidenceScore = {
   readonly score: number;
   readonly level: ConfidenceLevel;
   readonly rationale: string;
+  readonly components: readonly ConfidenceComponent[];
 };
 
 export type SearchResult = {
@@ -35,9 +44,33 @@ export type SearchResult = {
   readonly description?: string;
 };
 
+export type EntityIdentifier = {
+  readonly label:
+  | "Canonical Name"
+  | "Ticker"
+  | "CIK"
+  | "Exchange"
+  | "Company Number"
+  | "LEI"
+  | "Jurisdiction"
+  | "Status";
+  readonly value: string;
+  readonly source: DataSource;
+};
+
+export type EntityResolution = {
+  readonly displayName: string;
+  readonly canonicalName: string;
+  readonly primarySource: DataSource | null;
+  readonly matchedSources: readonly DataSource[];
+  readonly identifiers: readonly EntityIdentifier[];
+  readonly note: string;
+};
+
 export type FinancialMetric = {
   readonly label: string;
   readonly value: number | string | null;
+  readonly format?: "currency" | "number" | "percent";
   readonly period?: string;
   readonly source?: DataSource;
 };
@@ -46,6 +79,168 @@ export type AnalystConsensusEntry = {
   readonly firm: string;
   readonly rating: AnalystRating;
   readonly targetPrice: number | null;
+  readonly period?: string;
+  readonly detail?: string;
+  readonly counts?: {
+    readonly strongBuy: number;
+    readonly buy: number;
+    readonly hold: number;
+    readonly sell: number;
+    readonly strongSell: number;
+    readonly bullish: number;
+    readonly neutral: number;
+    readonly bearish: number;
+  };
+  readonly source?: DataSource;
+};
+
+export type RecommendationTrend = {
+  readonly period: string;
+  readonly strongBuy: number;
+  readonly buy: number;
+  readonly hold: number;
+  readonly sell: number;
+  readonly strongSell: number;
+  readonly bullish: number;
+  readonly neutral: number;
+  readonly bearish: number;
+};
+
+export type PriceTargetSummary = {
+  readonly currentPrice: number | null;
+  readonly targetMean: number | null;
+  readonly targetMedian: number | null;
+  readonly targetHigh: number | null;
+  readonly targetLow: number | null;
+  readonly upsidePercent: number | null;
+  readonly lastUpdated?: string;
+  readonly source: DataSource;
+};
+
+export type ValuationMetricComparison = {
+  readonly label: "P/E" | "EV / EBITDA" | "EV / Sales" | "P/B";
+  readonly current: number | null;
+  readonly historicalLow: number | null;
+  readonly historicalHigh: number | null;
+  readonly forward: number | null;
+  readonly source: DataSource;
+};
+
+export type ForwardEstimateSummary = {
+  readonly period: string;
+  readonly revenueEstimate: number | null;
+  readonly epsEstimate: number | null;
+  readonly source: DataSource;
+};
+
+export type PeerComparisonItem = {
+  readonly symbol: string;
+  readonly companyName: string;
+  readonly currentPrice: number | null;
+  readonly marketCap: number | null;
+  readonly peRatio: number | null;
+  readonly evToEbitda: number | null;
+  readonly revenueGrowth: number | null;
+  readonly source: DataSource;
+};
+
+export type ValuationView = {
+  readonly metrics: readonly ValuationMetricComparison[];
+  readonly forwardEstimates: readonly ForwardEstimateSummary[];
+  readonly enterpriseValue: number | null;
+  readonly marketCap: number | null;
+  readonly priceTargetFallback: PriceTargetSummary | null;
+  readonly note?: string;
+  readonly source: DataSource | null;
+};
+
+export type StreetView = {
+  readonly consensusRating: AnalystRating | null;
+  readonly latest: RecommendationTrend | null;
+  readonly previous: RecommendationTrend | null;
+  readonly priceTarget: PriceTargetSummary | null;
+  readonly priceTargetNote?: string;
+  readonly source: DataSource | null;
+};
+
+export type ResearchNoteSection = {
+  readonly title:
+  | "Executive Summary"
+  | "Company Overview"
+  | "Financial Analysis"
+  | "Valuation"
+  | "Street Consensus"
+  | "Risk Factors"
+  | "Catalysts & Outlook"
+  | "Analyst Brief";
+  readonly body: string;
+};
+
+export type ReportDelta = {
+  readonly title: string;
+  readonly detail: string;
+  readonly tone: "positive" | "negative" | "neutral";
+};
+
+export type EvidenceSignal = {
+  readonly title: string;
+  readonly detail: string;
+  readonly tone: "positive" | "negative" | "neutral";
+  readonly sources: readonly DataSource[];
+};
+
+export type CoverageGap = {
+  readonly title: string;
+  readonly detail: string;
+  readonly severity: "low" | "medium" | "high";
+};
+
+export type DisagreementNote = {
+  readonly title: string;
+  readonly detail: string;
+  readonly sources: readonly DataSource[];
+};
+
+export type SectionAuditItem = {
+  readonly section:
+  | "Entity Resolution"
+  | "Company Overview"
+  | "Financial Analysis"
+  | "Valuation"
+  | "Street Consensus"
+  | "Risk Factors"
+  | "Catalysts & Outlook";
+  readonly status: "supported" | "partial" | "limited";
+  readonly note: string;
+  readonly sources: readonly DataSource[];
+};
+
+export type NewsHighlight = {
+  readonly headline: string;
+  readonly source: string;
+  readonly publishedAt: string;
+  readonly summary: string;
+  readonly url: string;
+};
+
+export type EarningsHighlight = {
+  readonly period: string;
+  readonly actual: number | null;
+  readonly estimate: number | null;
+  readonly surprise: number | null;
+  readonly surprisePercent: number | null;
+  readonly source: DataSource;
+};
+
+export type InsiderActivityItem = {
+  readonly name: string;
+  readonly shareChange: number | null;
+  readonly share: number | null;
+  readonly transactionCode: string;
+  readonly transactionDate: string;
+  readonly filingDate?: string;
+  readonly transactionPrice: number | null;
+  readonly source: DataSource;
 };
 
 export type MonitorItem = {
@@ -64,11 +259,24 @@ export type DataSourceResult<T> = {
 
 export type AnalysisReport = {
   readonly company: string;
+  readonly entityResolution: EntityResolution;
   readonly summary: string;
   readonly narrative: string;
+  readonly sections: readonly ResearchNoteSection[];
   readonly confidence: ConfidenceScore;
   readonly metrics: readonly FinancialMetric[];
   readonly analystConsensus: readonly AnalystConsensusEntry[];
+  readonly streetView: StreetView | null;
+  readonly valuationView: ValuationView | null;
+  readonly peerComparison: readonly PeerComparisonItem[];
+  readonly earningsHighlights: readonly EarningsHighlight[];
+  readonly insiderActivity: readonly InsiderActivityItem[];
+  readonly deltas: readonly ReportDelta[];
+  readonly evidenceSignals: readonly EvidenceSignal[];
+  readonly coverageGaps: readonly CoverageGap[];
+  readonly disagreementNotes: readonly DisagreementNote[];
+  readonly sectionAudit: readonly SectionAuditItem[];
+  readonly newsHighlights: readonly NewsHighlight[];
   readonly sources: readonly DataSource[];
   readonly updatedAt: string;
 };
@@ -106,6 +314,58 @@ export type FinnhubRecommendation = {
   readonly symbol: string;
 };
 
+export type FinnhubBasicFinancialMetricSet = {
+  readonly "52WeekHigh"?: number | null;
+  readonly "52WeekLow"?: number | null;
+  readonly marketCapitalization?: number | null;
+  readonly peBasicExclExtraTTM?: number | null;
+  readonly peTTM?: number | null;
+  readonly pbAnnual?: number | null;
+  readonly psTTM?: number | null;
+  readonly ev?: number | null;
+  readonly evEbitdaTTM?: number | null;
+  readonly netMarginTTM?: number | null;
+  readonly netMarginAnnual?: number | null;
+  readonly operatingMarginTTM?: number | null;
+  readonly operatingMarginAnnual?: number | null;
+  readonly roeTTM?: number | null;
+  readonly roaTTM?: number | null;
+  readonly revenueGrowthTTMYoy?: number | null;
+  readonly epsGrowthTTMYoy?: number | null;
+};
+
+export type FinnhubBasicFinancials = {
+  readonly metric: FinnhubBasicFinancialMetricSet;
+};
+
+export type FinnhubPriceTarget = {
+  readonly targetHigh: number | null;
+  readonly targetLow: number | null;
+  readonly targetMean: number | null;
+  readonly targetMedian: number | null;
+  readonly lastUpdated?: string;
+};
+
+export type FinnhubEarningsEvent = {
+  readonly actual: number | null;
+  readonly estimate: number | null;
+  readonly period: string;
+  readonly quarter?: number | null;
+  readonly year?: number | null;
+  readonly surprise: number | null;
+  readonly surprisePercent: number | null;
+};
+
+export type FinnhubInsiderTransaction = {
+  readonly name: string;
+  readonly share: number | null;
+  readonly change: number | null;
+  readonly filingDate?: string;
+  readonly transactionDate: string;
+  readonly transactionCode: string;
+  readonly transactionPrice: number | null;
+};
+
 export type FinnhubNewsItem = {
   readonly category: string;
   readonly datetime: number;
@@ -120,9 +380,63 @@ export type FinnhubNewsItem = {
 
 export type FinnhubData = {
   readonly symbol: string;
+  readonly companyName: string | null;
   readonly quote: FinnhubQuote | null;
   readonly recommendations: readonly FinnhubRecommendation[];
   readonly news: readonly FinnhubNewsItem[];
+  readonly basicFinancials: FinnhubBasicFinancials | null;
+  readonly priceTarget: FinnhubPriceTarget | null;
+  readonly priceTargetNote?: string;
+  readonly earnings: readonly FinnhubEarningsEvent[];
+  readonly insiderTransactions: readonly FinnhubInsiderTransaction[];
+};
+
+export type FmpHistoricalMultiple = {
+  readonly date: string;
+  readonly peRatio: number | null;
+  readonly pbRatio: number | null;
+  readonly evToEbitda: number | null;
+  readonly evToSales: number | null;
+};
+
+export type FmpEnterpriseValue = {
+  readonly date: string;
+  readonly enterpriseValue: number | null;
+  readonly marketCapitalization: number | null;
+  readonly stockPrice: number | null;
+};
+
+export type FmpAnalystEstimate = {
+  readonly date: string;
+  readonly estimatedRevenueAvg: number | null;
+  readonly estimatedEpsAvg: number | null;
+};
+
+export type FmpPriceTargetConsensus = {
+  readonly targetHigh: number | null;
+  readonly targetLow: number | null;
+  readonly targetMedian: number | null;
+  readonly targetConsensus: number | null;
+};
+
+export type FmpPeerProfile = {
+  readonly symbol: string;
+  readonly companyName: string;
+  readonly currentPrice: number | null;
+  readonly marketCap: number | null;
+  readonly peRatio: number | null;
+  readonly revenueGrowth: number | null;
+  readonly evToEbitda: number | null;
+};
+
+export type FmpData = {
+  readonly symbol: string;
+  readonly historicalMultiples: readonly FmpHistoricalMultiple[];
+  readonly enterpriseValues: readonly FmpEnterpriseValue[];
+  readonly analystEstimates: readonly FmpAnalystEstimate[];
+  readonly priceTargetConsensus: FmpPriceTargetConsensus | null;
+  readonly peers: readonly FmpPeerProfile[];
+  readonly note?: string;
 };
 
 export type SecFiling = {
@@ -200,11 +514,11 @@ export type CompaniesHouseCompany = {
   readonly company_number: string;
   readonly company_name: string;
   readonly company_status:
-    | "active"
-    | "dissolved"
-    | "liquidation"
-    | "administration"
-    | string;
+  | "active"
+  | "dissolved"
+  | "liquidation"
+  | "administration"
+  | string;
   readonly company_type: string;
   readonly date_of_creation?: string;
   readonly registered_office_address: CompaniesHouseAddress;
@@ -219,9 +533,56 @@ export type CompaniesHouseSearchResponse = {
   readonly kind: string;
 };
 
+export type CompaniesHouseAccountsLast = {
+  readonly made_up_to?: string;
+  readonly period_start_on?: string;
+  readonly period_end_on?: string;
+  readonly type?: string;
+};
+
+export type CompaniesHouseNextAccounts = {
+  readonly due_on?: string;
+  readonly overdue?: boolean;
+  readonly period_start_on?: string;
+  readonly period_end_on?: string;
+};
+
+export type CompaniesHouseAccounts = {
+  readonly accounting_reference_date?: {
+    readonly day?: string;
+    readonly month?: string;
+  };
+  readonly last_accounts?: CompaniesHouseAccountsLast;
+  readonly next_accounts?: CompaniesHouseNextAccounts;
+  readonly next_due?: string;
+};
+
+export type CompaniesHouseProfile = {
+  readonly company_name: string;
+  readonly company_number: string;
+  readonly company_status: CompaniesHouseCompany["company_status"];
+  readonly company_type: string;
+  readonly date_of_creation?: string;
+  readonly jurisdiction?: string;
+  readonly sic_codes: readonly string[];
+  readonly registered_office_address: CompaniesHouseAddress;
+  readonly accounts: CompaniesHouseAccounts | null;
+};
+
+export type CompaniesHouseFiling = {
+  readonly date: string;
+  readonly category: string;
+  readonly type: string;
+  readonly description: string;
+  readonly pages?: number;
+  readonly document_metadata?: string;
+};
+
 export type CompaniesHouseData = {
   readonly company: CompaniesHouseCompany | null;
   readonly allMatches: readonly CompaniesHouseCompany[];
+  readonly profile: CompaniesHouseProfile | null;
+  readonly accountsFilings: readonly CompaniesHouseFiling[];
 };
 
 export type GleifName = {
@@ -242,16 +603,16 @@ export type GleifRegistration = {
   readonly initialRegistrationDate: string;
   readonly lastUpdateDate: string;
   readonly status:
-    | "ISSUED"
-    | "LAPSED"
-    | "MERGED"
-    | "RETIRED"
-    | "ANNULLED"
-    | "DUPLICATE"
-    | "TRANSFERRED"
-    | "PENDING_TRANSFER"
-    | "PENDING_ARCHIVAL"
-    | string;
+  | "ISSUED"
+  | "LAPSED"
+  | "MERGED"
+  | "RETIRED"
+  | "ANNULLED"
+  | "DUPLICATE"
+  | "TRANSFERRED"
+  | "PENDING_TRANSFER"
+  | "PENDING_ARCHIVAL"
+  | string;
   readonly nextRenewalDate: string;
   readonly managingLou: string;
 };
@@ -264,11 +625,11 @@ export type GleifEntity = {
   readonly registeredAt?: { readonly id: string };
   readonly jurisdiction: string;
   readonly category:
-    | "GENERAL"
-    | "BRANCH"
-    | "FUND"
-    | "SOLE_PROPRIETOR"
-    | string;
+  | "GENERAL"
+  | "BRANCH"
+  | "FUND"
+  | "SOLE_PROPRIETOR"
+  | string;
   readonly legalForm: { readonly id: string };
 };
 
@@ -311,6 +672,7 @@ export type WaterfallInput = {
 export type WaterfallResult = {
   readonly query: string;
   readonly finnhub: DataSourceResult<FinnhubData> | null;
+  readonly fmp: DataSourceResult<FmpData> | null;
   readonly secEdgar: DataSourceResult<SecEdgarData> | null;
   readonly companiesHouse: DataSourceResult<CompaniesHouseData> | null;
   readonly gleif: DataSourceResult<GleifData> | null;
@@ -320,8 +682,18 @@ export type WaterfallResult = {
 
 export type NarrativeInput = {
   readonly company: string;
+  readonly entityResolution: EntityResolution;
   readonly waterfallResult: WaterfallResult;
   readonly confidence: ConfidenceScore;
+  readonly evidenceSignals: readonly EvidenceSignal[];
+  readonly coverageGaps: readonly CoverageGap[];
+  readonly disagreementNotes: readonly DisagreementNote[];
+  readonly sectionAudit: readonly SectionAuditItem[];
+};
+
+export type NarrativeResult = {
+  readonly narrative: string;
+  readonly sections: readonly ResearchNoteSection[];
 };
 
 export type AnalyzeApiResponse = {
@@ -363,15 +735,36 @@ export const placeholderConfidence: ConfidenceScore = {
   score: 50,
   level: "medium",
   rationale: "Placeholder confidence until source-backed scoring is implemented.",
+  components: [],
 };
 
 export const placeholderAnalysisReport: AnalysisReport = {
   company: "Example Company",
+  entityResolution: {
+    displayName: "Example Company",
+    canonicalName: "Example Company",
+    primarySource: null,
+    matchedSources: [],
+    identifiers: [],
+    note: "No entity resolution has been generated yet.",
+  },
   summary: "No analysis has been generated yet.",
   narrative: "Run an analysis to populate this report with source-backed findings.",
+  sections: [],
   confidence: placeholderConfidence,
   metrics: [],
   analystConsensus: [],
+  streetView: null,
+  valuationView: null,
+  peerComparison: [],
+  earningsHighlights: [],
+  insiderActivity: [],
+  deltas: [],
+  evidenceSignals: [],
+  coverageGaps: [],
+  disagreementNotes: [],
+  sectionAudit: [],
+  newsHighlights: [],
   sources: [],
   updatedAt: "1970-01-01T00:00:00.000Z",
 };

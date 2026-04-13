@@ -26,6 +26,12 @@ type MonitoredCompanyFindManyArgs = {
   };
 };
 
+type MonitoredCompanyFindFirstArgs = {
+  readonly where: {
+    readonly companyId: string;
+  };
+};
+
 type AnalysisCacheFindUniqueArgs = {
   readonly where: {
     readonly companyId: string;
@@ -48,6 +54,16 @@ type AnalysisCacheUpsertArgs = {
 };
 
 type MonitoredCompanyCreateArgs = {
+  readonly data: {
+    readonly companyName: string;
+    readonly companyId: string;
+  };
+};
+
+type MonitoredCompanyUpdateArgs = {
+  readonly where: {
+    readonly id: string;
+  };
   readonly data: {
     readonly companyName: string;
     readonly companyId: string;
@@ -90,19 +106,20 @@ function sqlDate(value: Date): string {
   return sqlString(value.toISOString());
 }
 
-function execSql(args: readonly string[]): string {
+function execSql(args: readonly string[], sql?: string): string {
   return execFileSync(SQLITE_BINARY, [...args], {
     cwd: process.cwd(),
     encoding: "utf8",
+    ...(sql !== undefined ? { input: sql } : {}),
   });
 }
 
 function runStatement(sql: string): void {
-  execSql([DATABASE_PATH, sql]);
+  execSql([DATABASE_PATH], sql);
 }
 
 function queryRows<T>(sql: string): readonly T[] {
-  const output = execSql(["-json", DATABASE_PATH, sql]).trim();
+  const output = execSql(["-json", DATABASE_PATH], sql).trim();
 
   if (output.length === 0) {
     return [];
@@ -250,6 +267,31 @@ const monitoredCompany = {
     return rows.map((row) => toMonitoredCompanyRow(row));
   },
 
+  async findFirst(args: MonitoredCompanyFindFirstArgs): Promise<MonitoredCompanyRow | null> {
+    ensureSchema();
+
+    const rows = queryRows<{
+      readonly id: string;
+      readonly companyName: string;
+      readonly companyId: string;
+      readonly status: string;
+      readonly createdAt: string;
+      readonly updatedAt: string;
+    }>(
+      `
+        SELECT id, companyName, companyId, status, createdAt, updatedAt
+        FROM MonitoredCompany
+        WHERE companyId = ${sqlString(args.where.companyId)}
+        ORDER BY createdAt DESC
+        LIMIT 1;
+      `,
+    );
+
+    const row = rows[0];
+
+    return row === undefined ? null : toMonitoredCompanyRow(row);
+  },
+
   async create(args: MonitoredCompanyCreateArgs): Promise<void> {
     ensureSchema();
 
@@ -272,6 +314,21 @@ const monitoredCompany = {
         ${sqlString(now)},
         ${sqlString(now)}
       );
+    `);
+  },
+
+  async update(args: MonitoredCompanyUpdateArgs): Promise<void> {
+    ensureSchema();
+
+    const now = new Date().toISOString();
+
+    runStatement(`
+      UPDATE MonitoredCompany
+      SET
+        companyName = ${sqlString(args.data.companyName)},
+        companyId = ${sqlString(args.data.companyId)},
+        updatedAt = ${sqlString(now)}
+      WHERE id = ${sqlString(args.where.id)};
     `);
   },
 

@@ -13,21 +13,60 @@ const DECIMAL_NUMBER_FORMATTER = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+const CURRENCY_NUMBER_FORMATTER = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  maximumFractionDigits: 2,
+  style: "currency",
+});
+
+const COMPACT_CURRENCY_FORMATTER = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  maximumFractionDigits: 1,
+  notation: "compact",
+  style: "currency",
+});
+
 const SOURCE_LABELS: Record<DataSource, string> = {
   finnhub: "Finnhub",
+  fmp: "FMP",
   "sec-edgar": "SEC EDGAR",
   "companies-house": "Companies House",
   gleif: "GLEIF",
   "claude-fallback": "Claude Fallback",
 };
 
-function formatMetricValue(value: FinancialMetric["value"]): string {
+function formatPercentValue(value: number): string {
+  if (Math.abs(value) <= 1) {
+    return new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 1,
+      style: "percent",
+    }).format(value);
+  }
+
+  return `${DECIMAL_NUMBER_FORMATTER.format(value)}%`;
+}
+
+function formatMetricValue(metric: FinancialMetric): string {
+  const { format, value } = metric;
+
   if (value === null) {
     return "-";
   }
 
   if (typeof value === "string") {
     return value;
+  }
+
+  if (format === "percent") {
+    return formatPercentValue(value);
+  }
+
+  if (format === "currency") {
+    if (Math.abs(value) >= 1000) {
+      return COMPACT_CURRENCY_FORMATTER.format(value);
+    }
+
+    return CURRENCY_NUMBER_FORMATTER.format(value);
   }
 
   if (Math.abs(value) >= 1000) {
@@ -88,7 +127,7 @@ export function FinancialTable({
                   key={`${metric.label}-${metric.period ?? "na"}-${metric.source ?? "unknown"}-${index}`}
                 >
                   <td className="py-4 pr-4 font-medium text-zinc-100">{metric.label}</td>
-                  <td className="py-4 pr-4 text-zinc-200">{formatMetricValue(metric.value)}</td>
+                  <td className="py-4 pr-4 text-zinc-200">{formatMetricValue(metric)}</td>
                   <td className="py-4 pr-4 text-zinc-400">{metric.period ?? "-"}</td>
                   <td className="py-4">
                     <span className="rounded-full border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300">

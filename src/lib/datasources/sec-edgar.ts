@@ -38,6 +38,16 @@ type EdgarSearchResponse = {
   };
 };
 
+type SecEdgarLookupOptions = {
+  readonly cikHint?: string;
+  readonly tickerHint?: string;
+};
+
+type ResolvedEdgarLookup = {
+  readonly cik: string;
+  readonly companyInfo: SecCompanyInfo | null;
+};
+
 function padCik(cik: string | number): string {
   return String(cik).trim().padStart(10, "0");
 }
@@ -473,6 +483,75 @@ export async function searchEdgarCik(
   };
 }
 
+async function resolveEdgarLookup(
+  query: string,
+  options: SecEdgarLookupOptions = {},
+): Promise<ApiResult<ResolvedEdgarLookup>> {
+  if (options.cikHint !== undefined && options.cikHint.trim().length > 0) {
+    return {
+      success: true,
+      data: {
+        cik: padCik(options.cikHint),
+        companyInfo: null,
+      },
+    };
+  }
+
+  if (options.tickerHint !== undefined && options.tickerHint.trim().length > 0) {
+    const normalizedTicker = options.tickerHint.trim().toUpperCase();
+    const tickerCikResult = await searchEdgarCik(normalizedTicker);
+
+    if (tickerCikResult.success) {
+      const tickerCik = padCik(tickerCikResult.data);
+      const tickerCompanyInfoResult = await getCompanyInfo(tickerCik);
+
+      if (
+        tickerCompanyInfoResult.success &&
+        tickerCompanyInfoResult.data.tickers.some(
+          (ticker) => ticker.trim().toUpperCase() === normalizedTicker,
+        )
+      ) {
+        return {
+          success: true,
+          data: {
+            cik: tickerCik,
+            companyInfo: tickerCompanyInfoResult.data,
+          },
+        };
+      }
+
+      console.error("[sec-edgar] ticker hint could not be validated", {
+        query,
+        tickerHint: normalizedTicker,
+        cik: tickerCik,
+        companyInfoError: tickerCompanyInfoResult.success
+          ? null
+          : tickerCompanyInfoResult.error,
+      });
+    } else {
+      console.error("[sec-edgar] ticker search failed", {
+        query,
+        tickerHint: normalizedTicker,
+        error: tickerCikResult.error,
+      });
+    }
+  }
+
+  const cikResult = await searchEdgarCik(query);
+
+  if (!cikResult.success) {
+    return cikResult;
+  }
+
+  return {
+    success: true,
+    data: {
+      cik: padCik(cikResult.data),
+      companyInfo: null,
+    },
+  };
+}
+
 export async function getCompanyInfo(
   cik: string,
 ): Promise<ApiResult<SecCompanyInfo>> {
@@ -525,27 +604,27 @@ export async function getXbrlFacts(
 
 export async function fetchSecEdgarData(
   query: string,
-  cikHint?: string,
+  options: SecEdgarLookupOptions = {},
 ): Promise<ApiResult<SecEdgarData>> {
-  const cikResult = cikHint
-    ? {
-        success: true as const,
-        data: padCik(cikHint),
-      }
-    : await searchEdgarCik(query);
+  const lookupResult = await resolveEdgarLookup(query, options);
 
-  if (!cikResult.success) {
+  if (!lookupResult.success) {
     console.error("[sec-edgar] searchEdgarCik failed", {
       query,
-      error: cikResult.error,
+      error: lookupResult.error,
     });
 
-    return cikResult;
+    return lookupResult;
   }
 
-  const cik = padCik(cikResult.data);
+  const cik = padCik(lookupResult.data.cik);
   const [companyInfoResult, xbrlResult] = await Promise.all([
-    getCompanyInfo(cik),
+    lookupResult.data.companyInfo === null
+      ? getCompanyInfo(cik)
+      : Promise.resolve({
+        success: true as const,
+        data: lookupResult.data.companyInfo,
+      }),
     getXbrlFacts(cik),
   ]);
 

@@ -13,3 +13,5 @@ Review this file at the start of every session.
 
 ## Log
 (Add entries in reverse chronological order)
+
+- Search flows must separate live input from loaded report state. If the user edits the query, clear or invalidate any in-flight analysis so the UI cannot keep showing a previous company’s report for a new query.

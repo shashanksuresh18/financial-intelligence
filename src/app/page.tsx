@@ -2,6 +2,7 @@
 
 import { type JSX, useEffect, useRef, useState } from "react";
 
+import ActiveSnapshotPanel from "@/components/ActiveSnapshotPanel";
 import MonitorList from "@/components/MonitorList";
 import Report from "@/components/Report";
 import SearchBar from "@/components/SearchBar";
@@ -16,6 +17,7 @@ import type {
 
 const MIN_QUERY_LENGTH = 2;
 const SEARCH_DEBOUNCE_MS = 300;
+const ANALYSIS_TIMEOUT_MS = 45000;
 
 function getResultMeta(result: SearchResult): string {
   const parts = [
@@ -32,12 +34,16 @@ export default function Home(): JSX.Element {
   const [searchResults, setSearchResults] = useState<readonly SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [report, setReport] = useState<AnalysisReport | null>(null);
+  const [reportQuery, setReportQuery] = useState<string | null>(null);
+  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [monitorItems, setMonitorItems] = useState<readonly MonitorItem[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analysisAbortRef = useRef<AbortController | null>(null);
   const latestSearchRequestRef = useRef(0);
+  const latestAnalysisRequestRef = useRef(0);
 
   useEffect(() => {
     const loadMonitorItems = async (): Promise<void> => {
@@ -59,6 +65,8 @@ export default function Home(): JSX.Element {
       if (searchTimeoutRef.current !== null) {
         clearTimeout(searchTimeoutRef.current);
       }
+
+      analysisAbortRef.current?.abort();
     };
   }, []);
 
@@ -99,9 +107,98 @@ export default function Home(): JSX.Element {
     }
   };
 
+  const clearLoadedReport = (): void => {
+    setReport(null);
+    setReportQuery(null);
+  };
+
+  const runAnalysis = async (
+    analysisQuery: string,
+    options?: {
+      readonly forceRefresh?: boolean;
+      readonly preserveExisting?: boolean;
+    },
+  ): Promise<void> => {
+    if (searchTimeoutRef.current !== null) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    latestAnalysisRequestRef.current += 1;
+    const requestId = latestAnalysisRequestRef.current;
+    analysisAbortRef.current?.abort();
+    const controller = new AbortController();
+    analysisAbortRef.current = controller;
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, ANALYSIS_TIMEOUT_MS);
+
+    setSearchResults([]);
+    setIsSearching(false);
+    setIsAnalyzing(true);
+    setPendingQuery(analysisQuery);
+    setError(null);
+
+    if (options?.preserveExisting !== true) {
+      clearLoadedReport();
+    }
+
+    try {
+      const response = await fetch("/api/analyze", {
+        body: JSON.stringify({
+          company: analysisQuery,
+          ...(options?.forceRefresh === true ? { forceRefresh: true } : {}),
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+        signal: controller.signal,
+      });
+      const data = (await response.json()) as AnalyzeApiResponse;
+
+      if (requestId !== latestAnalysisRequestRef.current) {
+        return;
+      }
+
+      if (!response.ok || !data.ok || !data.report) {
+        setError(data.error ?? "Analysis failed");
+        return;
+      }
+
+      setReport(data.report);
+      setReportQuery(data.report.company);
+    } catch (error) {
+      if (requestId === latestAnalysisRequestRef.current) {
+        if (error instanceof Error && error.name === "AbortError") {
+          setError(
+            "Analysis timed out before the refresh completed. The previous report is still loaded.",
+          );
+        } else {
+          setError("Analysis failed");
+        }
+      }
+    } finally {
+      clearTimeout(timeoutId);
+
+      if (requestId === latestAnalysisRequestRef.current) {
+        setIsAnalyzing(false);
+        setPendingQuery(null);
+
+        if (analysisAbortRef.current === controller) {
+          analysisAbortRef.current = null;
+        }
+      }
+    }
+  };
+
   const handleSearch = (nextQuery: string): void => {
     setQuery(nextQuery);
     setError(null);
+    latestAnalysisRequestRef.current += 1;
+    setIsAnalyzing(false);
+    setPendingQuery(null);
+
+    if (searchResults.length > 0 || report !== null) {
+      clearLoadedReport();
+    }
 
     if (searchTimeoutRef.current !== null) {
       clearTimeout(searchTimeoutRef.current);
@@ -128,36 +225,29 @@ export default function Home(): JSX.Element {
   };
 
   const handleSelect = async (result: SearchResult): Promise<void> => {
-    if (searchTimeoutRef.current !== null) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
-    latestSearchRequestRef.current += 1;
     setQuery(result.name);
-    setSearchResults([]);
-    setIsSearching(false);
-    setIsAnalyzing(true);
+    void runAnalysis(result.name);
+  };
+
+  const handleSubmit = (submittedQuery: string): void => {
+    const trimmedQuery = submittedQuery.trim();
+
+    setQuery(submittedQuery);
     setError(null);
 
-    try {
-      const response = await fetch("/api/analyze", {
-        body: JSON.stringify({ company: result.name }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      });
-      const data = (await response.json()) as AnalyzeApiResponse;
-
-      if (!response.ok || !data.ok || !data.report) {
-        setError(data.error ?? "Analysis failed");
-        return;
-      }
-
-      setReport(data.report);
-    } catch {
-      setError("Analysis failed");
-    } finally {
-      setIsAnalyzing(false);
+    if (trimmedQuery.length < MIN_QUERY_LENGTH) {
+      latestSearchRequestRef.current += 1;
+      setIsSearching(false);
+      setSearchResults([]);
+      return;
     }
+
+    if (searchResults.length === 0) {
+      void runAnalysis(trimmedQuery);
+      return;
+    }
+
+    handleSearch(submittedQuery);
   };
 
   const handleWatch = async (result: SearchResult): Promise<void> => {
@@ -185,14 +275,82 @@ export default function Home(): JSX.Element {
     }
   };
 
+  const handleRefresh = (): void => {
+    const targetQuery = reportQuery ?? report?.company ?? query.trim();
+
+    if (targetQuery.length < MIN_QUERY_LENGTH) {
+      return;
+    }
+
+    void runAnalysis(targetQuery, {
+      forceRefresh: true,
+      preserveExisting: true,
+    });
+  };
+
+  const handleMonitorSelect = (item: MonitorItem): void => {
+    setQuery(item.label);
+    setError(null);
+    void runAnalysis(item.label);
+  };
+
+  const handleMonitorRemove = async (item: MonitorItem): Promise<void> => {
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `/api/monitor?id=${encodeURIComponent(item.id)}`,
+        { method: "DELETE" },
+      );
+      const data = (await response.json()) as MonitorApiResponse;
+
+      if (!response.ok || !data.ok) {
+        setError(data.error ?? "Failed to update monitor list");
+        return;
+      }
+
+      setMonitorItems(data.items);
+
+      if (loadedReportLabel === item.label) {
+        clearLoadedReport();
+      }
+    } catch {
+      setError("Failed to update monitor list");
+    }
+  };
+
+  const reportStatus = (() => {
+    if (isAnalyzing) {
+      return pendingQuery !== null
+        ? `Analyzing ${pendingQuery}`
+        : "Analyzing current query";
+    }
+
+    if (report !== null) {
+      return `Loaded for ${reportQuery ?? report.company}`;
+    }
+
+    if (isSearching) {
+      return query.trim().length > 0
+        ? `Searching ${query.trim()}`
+        : "Searching current query";
+    }
+
+    return query.trim().length > 0
+      ? "No report loaded for the current query"
+      : "Awaiting company selection";
+  })();
+
+  const loadedReportLabel = reportQuery ?? report?.company ?? null;
+
   const showSearchResults = searchResults.length > 0;
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#050816] text-zinc-100">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(6,78,59,0.26),transparent_30%),radial-gradient(circle_at_80%_10%,_rgba(14,165,233,0.16),transparent_18%),linear-gradient(180deg,rgba(24,24,27,0.25),transparent_45%)]" />
 
-      <div className="relative mx-auto flex max-w-7xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_22rem]">
+      <div className="relative mx-auto flex max-w-[96rem] flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
+        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_24rem]">
           <div className="rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-6 py-7 shadow-[0_32px_120px_-72px_rgba(16,185,129,0.45)] backdrop-blur">
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-200/80">
               Financial Intelligence
@@ -209,6 +367,7 @@ export default function Home(): JSX.Element {
             <div className="relative mt-8">
               <SearchBar
                 onSearch={handleSearch}
+                onSubmit={handleSubmit}
                 placeholder="Search any company..."
               />
 
@@ -279,7 +438,19 @@ export default function Home(): JSX.Element {
               <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Report status</p>
                 <p className="mt-2 text-sm font-medium text-zinc-200">
-                  {report ? `Loaded for ${report.company}` : "Awaiting company selection"}
+                  {reportStatus}
+                </p>
+                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
+                  Live query
+                </p>
+                <p className="mt-1 text-sm text-zinc-300">
+                  {query.trim().length > 0 ? query.trim() : "None"}
+                </p>
+                <p className="mt-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
+                  Loaded report
+                </p>
+                <p className="mt-1 text-sm text-zinc-300">
+                  {loadedReportLabel ?? "None"}
                 </p>
               </div>
               <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
@@ -293,7 +464,7 @@ export default function Home(): JSX.Element {
           </div>
         </section>
 
-        <section className="grid gap-8 xl:grid-cols-[minmax(0,1.45fr)_22rem]">
+        <section className="grid gap-8 xl:grid-cols-[minmax(0,1.35fr)_24rem]">
           <div className="space-y-4">
             {isAnalyzing ? (
               <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
@@ -308,7 +479,11 @@ export default function Home(): JSX.Element {
             ) : null}
 
             {report ? (
-              <Report report={report} />
+              <Report
+                isRefreshing={isAnalyzing}
+                onRefresh={handleRefresh}
+                report={report}
+              />
             ) : (
               <section className="rounded-[2rem] border border-dashed border-zinc-800 bg-zinc-950/60 px-6 py-10">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
@@ -326,8 +501,20 @@ export default function Home(): JSX.Element {
             )}
           </div>
 
-          <aside>
-            <MonitorList items={monitorItems} />
+          <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
+            <MonitorList
+              activeItemLabel={loadedReportLabel}
+              disabled={isAnalyzing}
+              items={monitorItems}
+              onRemove={(item) => {
+                void handleMonitorRemove(item);
+              }}
+              onSelect={handleMonitorSelect}
+            />
+            <ActiveSnapshotPanel
+              isAnalyzing={isAnalyzing}
+              report={report}
+            />
           </aside>
         </section>
       </div>

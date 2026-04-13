@@ -7,6 +7,7 @@ import type {
   GleifRegistration,
   GleifSearchResponse,
 } from "@/lib/types";
+import { buildCompanySearchVariants } from "@/lib/company-search";
 
 const BASE_URL = "https://api.gleif.org/api/v1";
 const PAGE_SIZE = 5;
@@ -343,34 +344,49 @@ function pickBestMatch(
 export async function fetchGleifData(
   query: string,
 ): Promise<ApiResult<GleifData>> {
-  const url = buildSearchUrl(query);
-  const result = await fetchGleif<unknown>(url);
+  const variants = buildCompanySearchVariants(query);
+  const variantResults = await Promise.all(
+    variants.map(async (variant) => {
+      const url = buildSearchUrl(variant);
+      const result = await fetchGleif<unknown>(url);
 
-  if (!result.success) {
-    console.error("[gleif] fetchGleif failed", {
-      query,
-      error: result.error,
-    });
+      if (!result.success) {
+        console.error("[gleif] fetchGleif failed", {
+          query,
+          variant,
+          error: result.error,
+        });
 
-    return {
-      success: false,
-      error: result.error,
-    };
-  }
+        return [] as readonly GleifRecord[];
+      }
 
-  const normalized = normalizeSearchResponse(result.data);
+      const normalized = normalizeSearchResponse(result.data);
 
-  if (normalized === null) {
-    console.error("[gleif] invalid response shape", { query });
+      if (normalized === null) {
+        console.error("[gleif] invalid response shape", {
+          query,
+          variant,
+        });
 
-    return {
-      success: false,
-      error: "Unexpected GLEIF response shape",
-    };
-  }
+        return [] as readonly GleifRecord[];
+      }
 
-  if (normalized.data.length === 0) {
-    console.error("[gleif] no results", { query });
+      return normalized.data;
+    }),
+  );
+
+  const allMatches = variantResults
+    .flat()
+    .reduce<GleifRecord[]>((accumulator, record) => {
+      if (accumulator.some((item) => item.id === record.id)) {
+        return accumulator;
+      }
+
+      return [...accumulator, record];
+    }, []);
+
+  if (allMatches.length === 0) {
+    console.error("[gleif] no results", { query, variants });
 
     return {
       success: false,
@@ -378,13 +394,13 @@ export async function fetchGleifData(
     };
   }
 
-  const record = pickBestMatch(normalized.data, query);
+  const record = pickBestMatch(allMatches, query);
 
   return {
     success: true,
     data: {
       record,
-      allMatches: normalized.data,
+      allMatches,
     },
   };
 }
