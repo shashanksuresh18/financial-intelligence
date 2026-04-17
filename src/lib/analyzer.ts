@@ -40,6 +40,35 @@ import { generateNarrative } from "@/lib/claude-narrative";
 import { computeConfidence } from "@/lib/confidence";
 import { buildInvestmentMemo } from "@/lib/investment-memo";
 
+const CH_SKIP_MCAP_THRESHOLD_USDm = 50_000;
+const INTERNATIONAL_EXCHANGE_SUFFIXES = new Set([
+  "L",
+  "AS",
+  "PA",
+  "DE",
+  "MI",
+  "ST",
+  "CO",
+  "HE",
+  "VX",
+  "NS",
+  "BO",
+  "KS",
+  "KQ",
+  "AX",
+  "NZ",
+  "HK",
+  "T",
+  "TW",
+  "SI",
+  "PR",
+  "WS",
+  "U",
+  "W",
+  "RT",
+  "CL",
+]);
+
 function wrapSource<T>(
   source: DataSource,
   result:
@@ -55,6 +84,44 @@ function wrapSource<T>(
     data: result.data,
     fetchedAt: new Date().toISOString(),
   };
+}
+
+function isUsPrimaryListingSymbol(symbol: string): boolean {
+  const suffixSegments = symbol.toUpperCase().split(".").slice(1);
+  const primarySuffix = suffixSegments[0] ?? null;
+
+  if (primarySuffix === null) {
+    return true;
+  }
+
+  if (INTERNATIONAL_EXCHANGE_SUFFIXES.has(primarySuffix)) {
+    return false;
+  }
+
+  return /^[A-Z]{1,2}$/.test(primarySuffix);
+}
+
+function shouldSkipCompaniesHouseLookup(
+  finnhubResult: Awaited<ReturnType<typeof fetchFinnhubData>>,
+): boolean {
+  if (!finnhubResult.success) {
+    return false;
+  }
+
+  const {
+    basicFinancials,
+    isAmbiguous = false,
+    symbol,
+    symbolType,
+  } = finnhubResult.data;
+  const marketCap = basicFinancials?.metric.marketCapitalization ?? 0;
+
+  return (
+    !isAmbiguous &&
+    isUsPrimaryListingSymbol(symbol) &&
+    symbolType?.trim().toLowerCase() === "common stock" &&
+    marketCap > CH_SKIP_MCAP_THRESHOLD_USDm
+  );
 }
 
 function extractXbrlMetrics(result: WaterfallResult): readonly FinancialMetric[] {
@@ -1903,18 +1970,21 @@ export async function runWaterfall(
   input: WaterfallInput,
 ): Promise<WaterfallResult> {
   const finnhubPromise = fetchFinnhubData(input.query);
-  const companiesHousePromise = fetchCompaniesHouseData(input.query);
   const gleifPromise = fetchGleifData(input.query);
 
   const finnhubResult = await finnhubPromise;
+  const skipCompaniesHouse = shouldSkipCompaniesHouseLookup(finnhubResult);
   const tickerHint =
     finnhubResult.success && finnhubResult.data.symbol.trim().length > 0
       ? finnhubResult.data.symbol
       : undefined;
+  const companiesHouseResultPromise = skipCompaniesHouse
+    ? Promise.resolve(null)
+    : fetchCompaniesHouseData(input.query);
 
   const [edgarResult, chResult, gleifResult] = await Promise.all([
     fetchSecEdgarData(input.query, { tickerHint }),
-    companiesHousePromise,
+    companiesHouseResultPromise,
     gleifPromise,
   ]);
 
@@ -1924,7 +1994,8 @@ export async function runWaterfall(
       ? wrapSource("fmp", await fetchFmpData(finnhubResult.data.symbol))
       : null;
   const secEdgar = wrapSource("sec-edgar", edgarResult);
-  const companiesHouse = wrapSource("companies-house", chResult);
+  const companiesHouse =
+    chResult === null ? null : wrapSource("companies-house", chResult);
   const gleif = wrapSource("gleif", gleifResult);
 
   const anyData =

@@ -456,6 +456,7 @@ export type FinnhubNewsItem = {
 
 export type FinnhubData = {
   readonly symbol: string;
+  readonly symbolType?: string;
   readonly companyName: string | null;
   readonly quote: FinnhubQuote | null;
   readonly recommendations: readonly FinnhubRecommendation[];

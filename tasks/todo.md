@@ -23,6 +23,7 @@
 ## Phase B: Entity Disambiguation
 
 - [x] Step 4 & 5: Rank multiple candidates by market cap, prefer holding company, flag ambiguous names below 50% confidence.
+- [x] Step 6: Phase 2 entity disambiguation — suppress description-noise matches, demote ADRs and Tier 2 instruments, and skip Companies House for strong US common-stock resolutions.
 
 ---
 

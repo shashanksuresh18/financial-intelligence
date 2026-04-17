@@ -20,10 +20,32 @@ const MAX_NEWS_ITEMS = 10;
 const MAX_EARNINGS_ITEMS = 4;
 const INSIDER_LOOKBACK_DAYS = 180;
 const MAX_INSIDER_ITEMS = 6;
-const SYMBOL_CANDIDATE_LIMIT = 5;
+const SYMBOL_CANDIDATE_LIMIT = 4;
 
-const PRIMARY_EXCHANGE_SUFFIXES = new Set(["AS", "BR", "DE", "MC", "MI", "PA", "SW", "TO"]);
-const SECONDARY_EXCHANGE_SUFFIXES = new Set(["F", "PR", "SG"]);
+const PRIMARY_EXCHANGE_SUFFIXES = new Set([
+  "L",
+  "AS",
+  "PA",
+  "DE",
+  "MI",
+  "ST",
+  "CO",
+  "HE",
+  "VX",
+]);
+const SECONDARY_EXCHANGE_SUFFIXES = new Set([
+  "NS",
+  "BO",
+  "KS",
+  "KQ",
+  "AX",
+  "NZ",
+  "HK",
+  "T",
+  "TW",
+  "SI",
+]);
+const DOWNRANKED_INSTRUMENT_SUFFIXES = new Set(["PR", "WS", "U", "W", "RT", "CL"]);
 const SYMBOL_TYPE_ALLOWLIST = new Set(["ADR", "Common Stock", "ETF", "Foreign Exchange"]);
 const COMPANY_DECORATION_TOKENS = new Set([
   "adr",
@@ -148,53 +170,30 @@ function normalizeSearchTokens(value: string): readonly string[] {
     .filter((token) => token.length > 0);
 }
 
-function normalizeSearchText(value: string): string {
-  return normalizeSearchTokens(value).join(" ");
-}
-
-function hasWholeWordQueryMatch(query: string, description: string): boolean {
-  const normalizedQuery = normalizeSearchText(query);
-  const normalizedDescription = normalizeSearchText(description);
-
-  if (normalizedQuery.length === 0 || normalizedDescription.length === 0) {
-    return false;
-  }
-
-  return (
-    normalizedDescription === normalizedQuery ||
-    normalizedDescription.startsWith(`${normalizedQuery} `) ||
-    normalizedDescription.endsWith(` ${normalizedQuery}`) ||
-    normalizedDescription.includes(` ${normalizedQuery} `)
-  );
-}
-
-function isRelevantNameCandidate(
+function descriptionContainsAllQueryWords(
   query: string,
-  match: FinnhubSymbolMatch,
+  description: string,
 ): boolean {
-  const normalizedQuery = normalizeSearchText(query);
+  const queryTokens = normalizeSearchTokens(query);
 
-  if (normalizedQuery.length === 0) {
+  if (queryTokens.length === 0) {
     return false;
   }
 
-  if (
-    match.symbol.toLowerCase() === normalizedQuery ||
-    match.displaySymbol.toLowerCase() === normalizedQuery
-  ) {
-    return true;
-  }
+  const descriptionTokens = new Set(normalizeSearchTokens(description));
 
-  return hasWholeWordQueryMatch(query, match.description);
+  return queryTokens.every((token) => descriptionTokens.has(token));
 }
 
-function filterRelevantNameCandidates(
+function filterDescriptionRelevantCandidates(
   matches: readonly FinnhubSymbolMatch[],
   query: string,
 ): readonly FinnhubSymbolMatch[] {
-  const relevant = matches.filter((match) => isRelevantNameCandidate(query, match));
+  const relevant = matches.filter((match) =>
+    descriptionContainsAllQueryWords(query, match.description),
+  );
 
-  return relevant.length > 0 ? relevant : matches;
+  return relevant.length >= 2 ? relevant : matches;
 }
 
 function canonicalCompanyKey(description: string): string {
@@ -217,26 +216,17 @@ function canonicalCompanyKey(description: string): string {
   return tokens.join(" ");
 }
 
-function getExchangePriority(match: FinnhubSymbolMatch): number {
+function getExchangeTier(match: FinnhubSymbolMatch): number {
   const symbol = match.symbol.toUpperCase();
   const suffixSegments = symbol.split(".").slice(1);
   const primarySuffix = suffixSegments[0] ?? null;
-  const normalizedType = match.type.trim().toLowerCase();
-
-  if (normalizedType === "adr") {
-    return 1;
-  }
 
   if (suffixSegments.length === 0) {
-    return normalizedType === "common stock" ? 3 : normalizedType.includes("stock") ? 2 : 1;
+    return 0;
   }
 
-  if (suffixSegments.length > 1) {
-    return 1;
-  }
-
-  if (primarySuffix === "L") {
-    return 3;
+  if (primarySuffix !== null && DOWNRANKED_INSTRUMENT_SUFFIXES.has(primarySuffix)) {
+    return 2;
   }
 
   if (primarySuffix !== null && SECONDARY_EXCHANGE_SUFFIXES.has(primarySuffix)) {
@@ -244,10 +234,14 @@ function getExchangePriority(match: FinnhubSymbolMatch): number {
   }
 
   if (primarySuffix !== null && PRIMARY_EXCHANGE_SUFFIXES.has(primarySuffix)) {
-    return 2;
+    return 0;
   }
 
-  return normalizedType === "common stock" || normalizedType.includes("stock") ? 2 : 1;
+  if (primarySuffix !== null && /^[A-Z]{1,2}$/.test(primarySuffix)) {
+    return 1;
+  }
+
+  return 1;
 }
 
 function marketCapValue(
@@ -256,14 +250,11 @@ function marketCapValue(
   return financials?.metric.marketCapitalization ?? 0;
 }
 
-function areMarketCapsSimilar(left: number, right: number): boolean {
-  if (left <= 0 || right <= 0) {
-    return false;
-  }
-
-  const ratio = Math.min(left, right) / Math.max(left, right);
-
-  return ratio >= 0.8;
+function effectiveMarketCapValue(
+  marketCap: number,
+  exchangeTier: number,
+): number {
+  return exchangeTier === 2 ? marketCap * 0.01 : marketCap;
 }
 
 function hasAllowedSymbolType(match: FinnhubSymbolMatch): boolean {
@@ -271,7 +262,8 @@ function hasAllowedSymbolType(match: FinnhubSymbolMatch): boolean {
 }
 
 type RankedSymbolCandidate = {
-  readonly exchangePriority: number;
+  readonly effectiveMarketCap: number;
+  readonly exchangeTier: number;
   readonly financials: FinnhubBasicFinancials | null;
   readonly marketCap: number;
   readonly match: FinnhubSymbolMatch;
@@ -281,17 +273,12 @@ function compareRankedCandidates(
   left: RankedSymbolCandidate,
   right: RankedSymbolCandidate,
 ): number {
-  const leftHasMarketCap = left.marketCap > 0;
-  const rightHasMarketCap = right.marketCap > 0;
-
-  if (leftHasMarketCap && rightHasMarketCap) {
-    if (!areMarketCapsSimilar(left.marketCap, right.marketCap)) {
-      return right.marketCap - left.marketCap;
-    }
+  if (left.effectiveMarketCap !== right.effectiveMarketCap) {
+    return right.effectiveMarketCap - left.effectiveMarketCap;
   }
 
-  if (left.exchangePriority !== right.exchangePriority) {
-    return right.exchangePriority - left.exchangePriority;
+  if (left.exchangeTier !== right.exchangeTier) {
+    return left.exchangeTier - right.exchangeTier;
   }
 
   if (left.marketCap !== right.marketCap) {
@@ -311,6 +298,77 @@ function findBestDistinctAlternative(
     (candidate) =>
       candidate.match.symbol !== selected.match.symbol &&
       canonicalCompanyKey(candidate.match.description) !== selectedKey,
+  );
+}
+
+function isAdr(match: FinnhubSymbolMatch): boolean {
+  return match.type.trim().toLowerCase() === "adr";
+}
+
+function isCommonStock(match: FinnhubSymbolMatch): boolean {
+  return match.type.trim().toLowerCase() === "common stock";
+}
+
+function findPromotableCommonStockAlternative(
+  ranked: readonly RankedSymbolCandidate[],
+  selected: RankedSymbolCandidate,
+): RankedSymbolCandidate | undefined {
+  const primaryListingCandidate = ranked.find(
+    (candidate) =>
+      candidate.match.symbol !== selected.match.symbol &&
+      candidate.exchangeTier === 0 &&
+      isCommonStock(candidate.match),
+  );
+
+  if (primaryListingCandidate !== undefined) {
+    return primaryListingCandidate;
+  }
+
+  return ranked.find(
+    (candidate) =>
+      candidate.match.symbol !== selected.match.symbol &&
+      candidate.exchangeTier === 1 &&
+      isCommonStock(candidate.match),
+  );
+}
+
+function selectBestCandidate(
+  ranked: readonly RankedSymbolCandidate[],
+): RankedSymbolCandidate {
+  const initial = ranked[0]!;
+  const higherQualityInstrument = ranked.find(
+    (candidate) =>
+      candidate.match.symbol !== initial.match.symbol &&
+      candidate.exchangeTier < 2,
+  );
+
+  if (initial.exchangeTier === 2 && higherQualityInstrument !== undefined) {
+    return higherQualityInstrument;
+  }
+
+  if (isAdr(initial.match)) {
+    const promotedCommonStock = findPromotableCommonStockAlternative(ranked, initial);
+
+    if (promotedCommonStock !== undefined) {
+      return promotedCommonStock;
+    }
+  }
+
+  return initial;
+}
+
+function isAmbiguousSelection(
+  ranked: readonly RankedSymbolCandidate[],
+  selected: RankedSymbolCandidate,
+): boolean {
+  const strongestAlternative = findBestDistinctAlternative(ranked, selected);
+
+  return (
+    strongestAlternative !== undefined &&
+    selected.marketCap > 0 &&
+    strongestAlternative.marketCap > 0 &&
+    (strongestAlternative.marketCap / selected.marketCap >= 0.5 ||
+      (selected.marketCap > 10000 && strongestAlternative.marketCap > 10000))
   );
 }
 
@@ -676,10 +734,8 @@ export async function resolveFinnhubSymbol(
   }
 
   const typedCandidates = matches.filter((match) => hasAllowedSymbolType(match));
-  const relevantCandidates = filterRelevantNameCandidates(
-    typedCandidates.length > 0 ? typedCandidates : matches,
-    query,
-  );
+  const candidatePool = typedCandidates.length > 0 ? typedCandidates : matches;
+  const relevantCandidates = filterDescriptionRelevantCandidates(candidatePool, query);
   const topCandidates = relevantCandidates.slice(0, SYMBOL_CANDIDATE_LIMIT);
 
   if (topCandidates.length === 1) {
@@ -690,33 +746,32 @@ export async function resolveFinnhubSymbol(
     topCandidates.map(async (match) => {
       const financialResult = await loadFinancials(match.symbol);
       const financials = financialResult.success ? financialResult.data : null;
+      const marketCap = marketCapValue(financials);
+      const exchangeTier = getExchangeTier(match);
 
       return {
-        exchangePriority: getExchangePriority(match),
+        effectiveMarketCap: effectiveMarketCapValue(marketCap, exchangeTier),
+        exchangeTier,
         financials,
         match,
-        marketCap: marketCapValue(financials),
+        marketCap,
       };
     }),
   );
 
   rankedCandidates.sort(compareRankedCandidates);
 
-  const best = rankedCandidates[0]!;
-  const strongestAlternative = findBestDistinctAlternative(rankedCandidates, best);
-  const isAmbiguous =
-    strongestAlternative !== undefined &&
-    best.marketCap > 0 &&
-    strongestAlternative.marketCap > 0 &&
-    (strongestAlternative.marketCap / best.marketCap >= 0.5 ||
-      (best.marketCap > 10000 && strongestAlternative.marketCap > 10000));
+  const best = selectBestCandidate(rankedCandidates);
+  const orderedCandidates = [
+    best,
+    ...rankedCandidates.filter((candidate) => candidate.match.symbol !== best.match.symbol),
+  ];
+  const isAmbiguous = isAmbiguousSelection(orderedCandidates, best);
 
   return {
     symbol: best.match,
     isAmbiguous,
-    alternatives: rankedCandidates
-      .filter((candidate) => candidate.match.symbol !== best.match.symbol)
-      .map((candidate) => candidate.match),
+    alternatives: orderedCandidates.slice(1).map((candidate) => candidate.match),
     preloadedFinancials: best.financials,
   };
 }
@@ -816,6 +871,7 @@ export async function fetchFinnhubData(
     success: true,
     data: {
       symbol: symbol.symbol,
+      symbolType: symbol.type,
       companyName:
         typeof symbol.description === "string" && symbol.description.trim().length > 0
           ? symbol.description.trim()
