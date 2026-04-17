@@ -33,7 +33,7 @@ export function SectionAuditPanel({
     <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
       <div className="mb-4">
         <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
-          Section Audit
+          Memo Support Audit
         </h3>
         <p className="mt-1 text-sm text-zinc-500">
           A quick fact-check view of how well each note section is supported by the evidence set.

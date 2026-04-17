@@ -18,19 +18,10 @@ function formatUpdatedAt(updatedAt: string): string {
   }).format(parsed);
 }
 
-function getSupportSummary(report: AnalysisReport): {
-  readonly supported: number;
-  readonly partial: number;
-  readonly limited: number;
-} {
-  return report.sectionAudit.reduce(
-    (summary, item) => ({
-      supported: summary.supported + (item.status === "supported" ? 1 : 0),
-      partial: summary.partial + (item.status === "partial" ? 1 : 0),
-      limited: summary.limited + (item.status === "limited" ? 1 : 0),
-    }),
-    { supported: 0, partial: 0, limited: 0 },
-  );
+function formatRecommendationLabel(
+  recommendation: AnalysisReport["investmentMemo"]["recommendation"],
+): string {
+  return recommendation.toUpperCase();
 }
 
 export function ActiveSnapshotPanel({
@@ -51,7 +42,6 @@ export function ActiveSnapshotPanel({
     );
   }
 
-  const support = getSupportSummary(report);
   const topSignals = report.evidenceSignals.slice(0, 2);
   const topGaps = report.coverageGaps.slice(0, 3);
 
@@ -80,61 +70,20 @@ export function ActiveSnapshotPanel({
         <p className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
           Updated {formatUpdatedAt(report.updatedAt)}
         </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="rounded-full border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-zinc-300">
+            {formatRecommendationLabel(report.investmentMemo.recommendation)}
+          </span>
+          <span className="rounded-full border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+            {report.investmentMemo.conviction} conviction
+          </span>
+          <span className="rounded-full border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+            {report.investmentMemo.coverageProfile}
+          </span>
+        </div>
         <p className="mt-3 text-sm leading-6 text-zinc-400">
           {report.summary}
         </p>
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            Confidence
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-zinc-50">
-            {report.confidence.score}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            Sources
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-zinc-50">
-            {report.sources.length}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            Metrics
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-zinc-50">
-            {report.metrics.length}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            Gaps
-          </p>
-          <p className="mt-2 text-3xl font-semibold text-zinc-50">
-            {report.coverageGaps.length}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-          Support Mix
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-emerald-200">
-            {support.supported} supported
-          </span>
-          <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-amber-200">
-            {support.partial} partial
-          </span>
-          <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-rose-200">
-            {support.limited} limited
-          </span>
-        </div>
       </div>
 
       <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">

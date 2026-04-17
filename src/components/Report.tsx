@@ -5,19 +5,19 @@ import type {
 } from "@/lib/types";
 
 import AnalystConsensus from "./AnalystConsensus";
-import ConfidenceBreakdown from "./ConfidenceBreakdown";
 import ConfidenceBadge from "./ConfidenceBadge";
+import ConfidenceBreakdown from "./ConfidenceBreakdown";
 import DataSourceAttribution from "./DataSourceAttribution";
 import EntityResolutionPanel from "./EntityResolutionPanel";
 import EarningsHighlightsPanel from "./EarningsHighlightsPanel";
 import FinancialTable from "./FinancialTable";
 import InsiderActivityPanel from "./InsiderActivityPanel";
+import InvestmentMemoPanel from "./InvestmentMemoPanel";
 import PeerComparisonPanel from "./PeerComparisonPanel";
 import RecentNewsPanel from "./RecentNewsPanel";
 import ResearchOpsPanel from "./ResearchOpsPanel";
 import ReportDeltaPanel from "./ReportDeltaPanel";
 import SectionAuditPanel from "./SectionAuditPanel";
-import SectionSupportBadge from "./SectionSupportBadge";
 import StreetViewPanel from "./StreetViewPanel";
 import ValuationOverviewPanel from "./ValuationOverviewPanel";
 
@@ -80,9 +80,11 @@ function getSectionAuditMatch(
     return null;
   }
 
-  return items.find(
-    (item) => normalizeSectionLabel(item.section) === normalizeSectionLabel(mappedSection),
-  ) ?? null;
+  return (
+    items.find(
+      (item) => normalizeSectionLabel(item.section) === normalizeSectionLabel(mappedSection),
+    ) ?? null
+  );
 }
 
 export function Report({
@@ -94,16 +96,20 @@ export function Report({
 
   return (
     <section className="overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-950/75 shadow-[0_32px_120px_-60px_rgba(15,23,42,1)]">
-      <div className="border-b border-zinc-800 bg-gradient-to-r from-zinc-950 via-zinc-950 to-emerald-950/30 px-6 py-6">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-3xl">
+      <div className="border-b border-zinc-800 bg-gradient-to-r from-zinc-950 via-zinc-950 to-emerald-950/20 px-6 py-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-4xl">
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-zinc-500">
-              Company Analysis
+              Investment Memo
             </p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-50">
               {report.company}
             </h2>
-            <p className="mt-3 text-sm leading-7 text-zinc-300">{report.summary}</p>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
+              Decision-first memo backed by {report.sources.length} active source
+              {report.sources.length === 1 ? "" : "s"}. Supporting evidence and auditability are
+              available below.
+            </p>
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <p className="text-sm text-zinc-500">
                 Refreshed {formatUpdatedAt(report.updatedAt)}
@@ -120,124 +126,111 @@ export function Report({
               ) : null}
             </div>
           </div>
-          <div className="space-y-3">
-            <ConfidenceBadge confidence={report.confidence} />
-            <SectionSupportBadge items={report.sectionAudit} />
-            <p className="max-w-sm text-sm leading-6 text-zinc-400">
-              {report.confidence.rationale}
-            </p>
-          </div>
         </div>
       </div>
 
-      <div className="grid gap-6 px-6 py-6 xl:grid-cols-[minmax(0,1.18fr)_minmax(24rem,1fr)]">
-        <div className="space-y-6">
-          <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
-              Institutional Note
-            </h3>
-            <div className="mt-4 space-y-6">
-              {report.sections.length > 0 ? (
-                report.sections.map((section) => {
-                  const audit = getSectionAuditMatch(section.title, report.sectionAudit);
+      <div className="space-y-6 px-6 py-6">
+        <InvestmentMemoPanel memo={report.investmentMemo} />
 
-                  return (
-                    <div key={`${section.title}-${section.body}`}>
-                      <div className="flex items-center justify-between gap-3">
-                        <h4 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                          {section.title}
-                        </h4>
-                        {audit !== null ? (
-                          <span
-                            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${SECTION_AUDIT_STYLES[audit.status]}`}
-                            title={audit.note}
-                          >
-                            {audit.status}
-                          </span>
-                        ) : null}
-                      </div>
-                    <div className="mt-3 space-y-4 text-sm leading-7 text-zinc-300">
-                      {getNarrativeParagraphs(section.body).map((paragraph, index) => (
-                        <p key={`${section.title}-${index}-${paragraph}`}>{paragraph}</p>
-                      ))}
+        <details className="group rounded-3xl border border-zinc-800 bg-zinc-950/60 p-5">
+          <summary className="flex cursor-pointer list-none flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-300">
+                Supporting Evidence
+              </p>
+              <p className="mt-1 text-sm text-zinc-500">
+                Audit trail, valuation tables, Street detail, entity resolution, and confidence
+                mechanics.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
+              <span>{report.metrics.length} metrics</span>
+              <span>{report.sources.length} sources</span>
+              <span className="transition group-open:rotate-180">v</span>
+            </div>
+          </summary>
+
+          <div className="mt-6 space-y-6">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.18fr)_minmax(24rem,1fr)]">
+              <div className="space-y-6">
+                <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
+                        Supporting Analyst Note
+                      </h3>
+                      <p className="mt-1 text-sm text-zinc-500">
+                        Narrative synthesis from the grounded evidence stack.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <ConfidenceBadge confidence={report.confidence} />
                     </div>
                   </div>
-                  );
-                })
-              ) : (
-                <div className="space-y-4 text-sm leading-7 text-zinc-300">
-                  {narrativeParagraphs.map((paragraph, index) => (
-                    <p key={`${index}-${paragraph}`}>{paragraph}</p>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
 
-          <ResearchOpsPanel
-            coverageGaps={report.coverageGaps}
-            disagreementNotes={report.disagreementNotes}
-            evidenceSignals={report.evidenceSignals}
-          />
-          <FinancialTable metrics={report.metrics} />
-          <ValuationOverviewPanel valuationView={report.valuationView} />
-          <PeerComparisonPanel items={report.peerComparison} />
-          <ReportDeltaPanel items={report.deltas} />
-          <RecentNewsPanel items={report.newsHighlights} />
-        </div>
+                  <div className="space-y-6">
+                    {report.sections.length > 0 ? (
+                      report.sections.map((section) => {
+                        const audit = getSectionAuditMatch(section.title, report.sectionAudit);
 
-        <div className="grid gap-6 xl:grid-cols-2">
-          <section className="grid gap-3 sm:grid-cols-3 xl:col-span-2 xl:grid-cols-3">
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Sources</p>
-              <p className="mt-2 text-2xl font-semibold text-zinc-50">
-                {report.sources.length}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Metrics</p>
-              <p className="mt-2 text-2xl font-semibold text-zinc-50">
-                {report.metrics.length}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Street Signals</p>
-              <p className="mt-2 text-2xl font-semibold text-zinc-50">
-                {report.streetView !== null
-                  ? report.analystConsensus.length +
-                  report.earningsHighlights.length +
-                  report.insiderActivity.length
-                  : report.analystConsensus.length}
-              </p>
-            </div>
-          </section>
+                        return (
+                          <div key={`${section.title}-${section.body}`}>
+                            <div className="flex items-center justify-between gap-3">
+                              <h4 className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                                {section.title}
+                              </h4>
+                              {audit !== null ? (
+                                <span
+                                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${SECTION_AUDIT_STYLES[audit.status]}`}
+                                  title={audit.note}
+                                >
+                                  {audit.status}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="mt-3 space-y-4 text-sm leading-7 text-zinc-300">
+                              {getNarrativeParagraphs(section.body).map((paragraph, index) => (
+                                <p key={`${section.title}-${index}-${paragraph}`}>{paragraph}</p>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="space-y-4 text-sm leading-7 text-zinc-300">
+                        {narrativeParagraphs.map((paragraph, index) => (
+                          <p key={`${index}-${paragraph}`}>{paragraph}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
 
-          <div className="xl:col-span-2">
-            <StreetViewPanel streetView={report.streetView} />
+                <ResearchOpsPanel
+                  coverageGaps={report.coverageGaps}
+                  disagreementNotes={report.disagreementNotes}
+                  evidenceSignals={report.evidenceSignals}
+                />
+                <FinancialTable metrics={report.metrics} />
+                <ValuationOverviewPanel valuationView={report.valuationView} />
+                <PeerComparisonPanel items={report.peerComparison} />
+                <ReportDeltaPanel items={report.deltas} />
+                <RecentNewsPanel items={report.newsHighlights} />
+              </div>
+
+              <div className="space-y-6">
+                <StreetViewPanel streetView={report.streetView} />
+                <AnalystConsensus items={report.analystConsensus} />
+                <EarningsHighlightsPanel items={report.earningsHighlights} />
+                <InsiderActivityPanel items={report.insiderActivity} />
+                <EntityResolutionPanel entityResolution={report.entityResolution} />
+                <ConfidenceBreakdown confidence={report.confidence} />
+                <SectionAuditPanel items={report.sectionAudit} />
+                <DataSourceAttribution sources={report.sources} updatedAt={report.updatedAt} />
+              </div>
+            </div>
           </div>
-          <div className="xl:col-span-2">
-            <AnalystConsensus items={report.analystConsensus} />
-          </div>
-          <div className="xl:col-span-2">
-            <EntityResolutionPanel entityResolution={report.entityResolution} />
-          </div>
-          <EarningsHighlightsPanel items={report.earningsHighlights} />
-          <div className="xl:col-span-2">
-            <SectionAuditPanel items={report.sectionAudit} />
-          </div>
-          <div className="xl:col-span-2">
-            <ConfidenceBreakdown confidence={report.confidence} />
-          </div>
-          <div className="xl:col-span-2">
-            <InsiderActivityPanel items={report.insiderActivity} />
-          </div>
-          <div className="xl:col-span-2">
-            <DataSourceAttribution
-              sources={report.sources}
-              updatedAt={report.updatedAt}
-            />
-          </div>
-        </div>
+        </details>
       </div>
     </section>
   );

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { analyzeCompany, attachReportDeltas } from "@/lib/analyzer";
 import { db } from "@/lib/db";
+import { buildInvestmentMemo } from "@/lib/investment-memo";
 import { buildNarrativeSummary, parseNarrativeSections } from "@/lib/narrative-sections";
 import {
   placeholderAnalysisReport,
@@ -30,13 +31,10 @@ function normalizeReportShape(report: AnalysisReport): AnalysisReport {
     report.sections.length === 1 && report.sections[0]?.title === "Analyst Brief"
       ? parseNarrativeSections(report.narrative)
       : report.sections ?? [];
-  const summary = buildNarrativeSummary(report.narrative, sections);
-
-  return {
+  const normalizedBase = {
     ...report,
     entityResolution:
       report.entityResolution ?? placeholderAnalysisReport.entityResolution,
-    summary,
     sections,
     deltas: report.deltas ?? [],
     newsHighlights: report.newsHighlights ?? [],
@@ -49,6 +47,43 @@ function normalizeReportShape(report: AnalysisReport): AnalysisReport {
     coverageGaps: report.coverageGaps ?? [],
     disagreementNotes: report.disagreementNotes ?? [],
     sectionAudit: report.sectionAudit ?? [],
+    sources: report.sources ?? [],
+  };
+  const hasModernMemoShape =
+    typeof report.investmentMemo === "object" &&
+    report.investmentMemo !== null &&
+    "recommendation" in report.investmentMemo &&
+    "conviction" in report.investmentMemo &&
+    "verdict" in report.investmentMemo;
+  const investmentMemo =
+    hasModernMemoShape
+      ? report.investmentMemo
+      : buildInvestmentMemo({
+      company: normalizedBase.company,
+      entityResolution: normalizedBase.entityResolution,
+      confidence: normalizedBase.confidence,
+      metrics: normalizedBase.metrics,
+      streetView: normalizedBase.streetView,
+      valuationView: normalizedBase.valuationView,
+      earningsHighlights: normalizedBase.earningsHighlights,
+      newsHighlights: normalizedBase.newsHighlights,
+      evidenceSignals: normalizedBase.evidenceSignals,
+      coverageGaps: normalizedBase.coverageGaps,
+      disagreementNotes: normalizedBase.disagreementNotes,
+      sectionAudit: normalizedBase.sectionAudit,
+      sections,
+      narrative: normalizedBase.narrative,
+      sources: normalizedBase.sources,
+    });
+  const summary =
+    investmentMemo.verdict.trim().length > 0
+      ? investmentMemo.verdict
+      : buildNarrativeSummary(normalizedBase.narrative, sections);
+
+  return {
+    ...normalizedBase,
+    summary,
+    investmentMemo,
   };
 }
 

@@ -38,6 +38,7 @@ import {
 } from "@/lib/datasources/sec-edgar";
 import { generateNarrative } from "@/lib/claude-narrative";
 import { computeConfidence } from "@/lib/confidence";
+import { buildInvestmentMemo } from "@/lib/investment-memo";
 
 function wrapSource<T>(
   source: DataSource,
@@ -2038,9 +2039,25 @@ export async function analyzeCompany(query: string): Promise<AnalysisReport> {
     coverageGaps,
     disagreementNotes,
   });
+  const draftInvestmentMemo = buildInvestmentMemo({
+    company: entityResolution.displayName,
+    entityResolution,
+    confidence,
+    metrics,
+    streetView,
+    valuationView,
+    earningsHighlights,
+    newsHighlights,
+    evidenceSignals,
+    coverageGaps,
+    disagreementNotes,
+    sectionAudit,
+    sources: waterfallResult.activeSources,
+  });
   const narrativeResult = await generateNarrative({
     company: entityResolution.displayName,
     entityResolution,
+    investmentMemo: draftInvestmentMemo,
     waterfallResult,
     confidence,
     evidenceSignals,
@@ -2049,27 +2066,33 @@ export async function analyzeCompany(query: string): Promise<AnalysisReport> {
     sectionAudit,
   });
   const narrative = narrativeResult.narrative;
-  const executiveSummary =
-    narrativeResult.sections.find((section) => section.title === "Executive Summary")
-      ?.body ?? "";
-  const summarySource = executiveSummary.trim().length > 0 ? executiveSummary : narrative;
+  const investmentMemo = buildInvestmentMemo({
+    company: entityResolution.displayName,
+    entityResolution,
+    confidence,
+    metrics,
+    streetView,
+    valuationView,
+    earningsHighlights,
+    newsHighlights,
+    evidenceSignals,
+    coverageGaps,
+    disagreementNotes,
+    sectionAudit,
+    sections: narrativeResult.sections,
+    narrative,
+    sources: waterfallResult.activeSources,
+  });
   const summary =
-    summarySource.trim().length === 0
+    investmentMemo.verdict.trim().length === 0
       ? "No analysis data available."
-      : summarySource
-        .slice(
-          0,
-          Math.min(
-            summarySource.indexOf(".") >= 0 ? summarySource.indexOf(".") + 1 : 160,
-            160,
-          ),
-        )
-        .trim();
+      : investmentMemo.verdict;
 
   return {
     company: entityResolution.displayName,
     entityResolution,
     summary,
+    investmentMemo,
     narrative,
     sections: narrativeResult.sections,
     confidence,

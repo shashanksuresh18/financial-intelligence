@@ -17,7 +17,7 @@ export function ConfidenceBreakdown({
     <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
       <div className="mb-4">
         <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
-          Confidence Breakdown
+          Confidence Mechanics
         </h3>
         <p className="mt-1 text-sm text-zinc-500">
           Component scoring shows where the report is strongest and where evidence is still thin.

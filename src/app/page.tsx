@@ -4,7 +4,6 @@ import { type JSX, useEffect, useRef, useState } from "react";
 
 import ActiveSnapshotPanel from "@/components/ActiveSnapshotPanel";
 import MonitorList from "@/components/MonitorList";
-import PortfolioOverviewPanel from "@/components/PortfolioOverviewPanel";
 import Report from "@/components/Report";
 import SearchBar from "@/components/SearchBar";
 import type {
@@ -48,9 +47,6 @@ export default function Home(): JSX.Element {
   const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [monitorItems, setMonitorItems] = useState<readonly MonitorItem[]>([]);
-  const [monitorSummary, setMonitorSummary] = useState<
-    MonitorApiResponse["summary"]
-  >();
   const [monitorSortKey, setMonitorSortKey] =
     useState<MonitorSortKey>("confidence");
   const [analysisStartedAt, setAnalysisStartedAt] = useState<number | null>(null);
@@ -70,7 +66,6 @@ export default function Home(): JSX.Element {
 
         if (data.ok) {
           setMonitorItems(data.items);
-          setMonitorSummary(data.summary);
         }
       } catch {
         // Monitor list is non-critical on first paint.
@@ -314,7 +309,6 @@ export default function Home(): JSX.Element {
       }
 
       setMonitorItems(data.items);
-      setMonitorSummary(data.summary);
     } catch {
       setError("Failed to update monitor list");
     }
@@ -355,7 +349,6 @@ export default function Home(): JSX.Element {
       }
 
       setMonitorItems(data.items);
-      setMonitorSummary(data.summary);
 
       if (loadedReportLabel === item.label) {
         clearLoadedReport();
@@ -390,126 +383,133 @@ export default function Home(): JSX.Element {
   const loadedReportLabel = reportQuery ?? report?.company ?? null;
 
   const showSearchResults = searchResults.length > 0;
+  const hasReport = report !== null || isAnalyzing;
+
+  const searchDropdown = showSearchResults ? (
+    <ul className="absolute inset-x-0 z-20 mt-3 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.95)] backdrop-blur">
+      {searchResults.map((result) => (
+        <li
+          className="flex items-center justify-between gap-4 border-b border-zinc-800/80 px-4 py-4 last:border-b-0"
+          key={result.id}
+        >
+          <button
+            className="min-w-0 flex-1 text-left"
+            onClick={() => {
+              void handleSelect(result);
+            }}
+            type="button"
+          >
+            <span className="block text-sm font-medium text-zinc-100">
+              {result.name}
+            </span>
+            <span className="mt-1 block truncate text-xs uppercase tracking-[0.18em] text-zinc-500">
+              {getResultMeta(result) || "Cross-source company match"}
+            </span>
+          </button>
+          <button
+            className="rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-sky-200 transition hover:border-sky-300/35 hover:bg-sky-400/15"
+            onClick={() => {
+              void handleWatch(result);
+            }}
+            type="button"
+          >
+            Watch
+          </button>
+        </li>
+      ))}
+    </ul>
+  ) : null;
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#050816] text-zinc-100">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(6,78,59,0.26),transparent_30%),radial-gradient(circle_at_80%_10%,_rgba(14,165,233,0.16),transparent_18%),linear-gradient(180deg,rgba(24,24,27,0.25),transparent_45%)]" />
 
       <div className="relative mx-auto flex max-w-[96rem] flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_24rem]">
-          <div className="rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-6 py-7 shadow-[0_32px_120px_-72px_rgba(16,185,129,0.45)] backdrop-blur">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-200/80">
-              Financial Intelligence
-            </p>
-            <h1 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-zinc-50 sm:text-5xl">
-              Source-backed company analysis for fast diligence.
-            </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400 sm:text-base">
-              Search any company to pull structured metrics, confidence scoring,
-              analyst signals, and source attribution across market, filing, and
-              registry datasets.
-            </p>
+        {!hasReport ? (
+          <section className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_24rem]">
+            <div className="rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-6 py-7 shadow-[0_32px_120px_-72px_rgba(16,185,129,0.45)] backdrop-blur">
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-200/80">
+                Financial Intelligence
+              </p>
+              <h1 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-zinc-50 sm:text-5xl">
+                Source-backed company analysis for fast diligence.
+              </h1>
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400 sm:text-base">
+                Search any company to pull structured metrics, confidence scoring,
+                analyst signals, and source attribution across market, filing, and
+                registry datasets.
+              </p>
 
-            <div className="relative mt-8">
-              <SearchBar
-                disabled={isAnalyzing}
-                onSearch={handleSearch}
-                onSubmit={handleSubmit}
-                placeholder="Search any company..."
-              />
+              <div className="relative mt-8">
+                <SearchBar
+                  disabled={isAnalyzing}
+                  onSearch={handleSearch}
+                  onSubmit={handleSubmit}
+                  placeholder="Search any company..."
+                />
+                {searchDropdown}
+              </div>
 
-              {showSearchResults ? (
-                <ul className="absolute inset-x-0 z-20 mt-3 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.95)] backdrop-blur">
-                  {searchResults.map((result) => (
-                    <li
-                      className="flex items-center justify-between gap-4 border-b border-zinc-800/80 px-4 py-4 last:border-b-0"
-                      key={result.id}
-                    >
-                      <button
-                        className="min-w-0 flex-1 text-left"
-                        onClick={() => {
-                          void handleSelect(result);
-                        }}
-                        type="button"
-                      >
-                        <span className="block text-sm font-medium text-zinc-100">
-                          {result.name}
-                        </span>
-                        <span className="mt-1 block truncate text-xs uppercase tracking-[0.18em] text-zinc-500">
-                          {getResultMeta(result) || "Cross-source company match"}
-                        </span>
-                      </button>
-                      <button
-                        className="rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-sky-200 transition hover:border-sky-300/35 hover:bg-sky-400/15"
-                        onClick={() => {
-                          void handleWatch(result);
-                        }}
-                        type="button"
-                      >
-                        Watch
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
-              <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
-                Debounced live search
-              </span>
-              <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
-                {query.trim().length >= MIN_QUERY_LENGTH
-                  ? `${searchResults.length} candidate matches`
-                  : "Type at least 2 characters"}
-              </span>
-              {isSearching ? (
-                <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-200">
-                  Searching live sources
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
+                <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
+                  Debounced live search
                 </span>
-              ) : null}
+                <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
+                  {query.trim().length >= MIN_QUERY_LENGTH
+                    ? `${searchResults.length} candidate matches`
+                    : "Type at least 2 characters"}
+                </span>
+                {isSearching ? (
+                  <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-200">
+                    Searching live sources
+                  </span>
+                ) : null}
+              </div>
             </div>
-          </div>
 
-          <div className="rounded-[2rem] border border-zinc-800 bg-zinc-950/75 p-6 shadow-[0_24px_80px_-48px_rgba(0,0,0,0.95)]">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
-              Coverage
-            </p>
-            <div className="mt-5 grid gap-4">
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Watched</p>
-                <p className="mt-2 text-3xl font-semibold text-zinc-50">
-                  {monitorItems.length}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Report status</p>
-                <p className="mt-2 text-sm font-medium text-zinc-200">
-                  {reportStatus}
-                </p>
-                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
-                  Live query
-                </p>
-                <p className="mt-1 text-sm text-zinc-300">
-                  {query.trim().length > 0 ? query.trim() : "None"}
-                </p>
-                <p className="mt-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
-                  Loaded report
-                </p>
-                <p className="mt-1 text-sm text-zinc-300">
-                  {loadedReportLabel ?? "None"}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Pipeline</p>
-                <p className="mt-2 text-sm leading-6 text-zinc-400">
-                  Finnhub, SEC EDGAR, Companies House, GLEIF, and Claude fallback
-                  are already connected behind the analysis route.
-                </p>
+            <div className="rounded-[2rem] border border-zinc-800 bg-zinc-950/75 p-6 shadow-[0_24px_80px_-48px_rgba(0,0,0,0.95)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                Coverage
+              </p>
+              <div className="mt-5 grid gap-4">
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Watched</p>
+                  <p className="mt-2 text-3xl font-semibold text-zinc-50">
+                    {monitorItems.length}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Report status</p>
+                  <p className="mt-2 text-sm font-medium text-zinc-200">
+                    {reportStatus}
+                  </p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
+                    Live query
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-300">
+                    {query.trim().length > 0 ? query.trim() : "None"}
+                  </p>
+                  <p className="mt-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
+                    Loaded report
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-300">
+                    {loadedReportLabel ?? "None"}
+                  </p>
+                </div>
               </div>
             </div>
+          </section>
+        ) : (
+          <div className="relative rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-5 py-4 backdrop-blur">
+            <SearchBar
+              disabled={isAnalyzing}
+              onSearch={handleSearch}
+              onSubmit={handleSubmit}
+              placeholder="Search another company..."
+            />
+            {searchDropdown}
           </div>
-        </section>
+        )}
 
         <section className="grid gap-8 xl:grid-cols-[minmax(0,1.35fr)_24rem]">
           <div className="space-y-4">
@@ -634,7 +634,6 @@ export default function Home(): JSX.Element {
               onSortChange={setMonitorSortKey}
               sortKey={monitorSortKey}
             />
-            <PortfolioOverviewPanel summary={monitorSummary} />
             <ActiveSnapshotPanel
               isAnalyzing={isAnalyzing}
               report={report}

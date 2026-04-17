@@ -35,10 +35,10 @@ export function ResearchOpsPanel({
     <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
       <div className="mb-4">
         <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
-          Research Ops
+          Evidence Readout
         </h3>
         <p className="mt-1 text-sm text-zinc-500">
-          Prioritized signals, explicit gaps, and tensions surfaced from the evidence set.
+          Prioritized support, explicit gaps, and tensions surfaced from the evidence set.
         </p>
       </div>
 

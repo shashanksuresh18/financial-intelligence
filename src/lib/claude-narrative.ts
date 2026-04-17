@@ -351,11 +351,51 @@ function formatSectionAudit(input: NarrativeInput): string {
     .join("\n");
 }
 
+function formatInvestmentMemo(input: NarrativeInput): string {
+  const whyNow = input.investmentMemo.whyNow.map((item) => `- ${item}`).join("\n");
+  const keyRisks = input.investmentMemo.keyRisks
+    .map((item) => `- [${item.category}] ${item.title}: ${item.detail}`)
+    .join("\n");
+  const improveConfidence = input.investmentMemo.whatImprovesConfidence
+    .map((item) => `- ${item}`)
+    .join("\n");
+  const reduceConfidence = input.investmentMemo.whatReducesConfidence
+    .map((item) => `- ${item}`)
+    .join("\n");
+  const verifiedFacts = input.investmentMemo.verifiedFacts
+    .map((item) => `- ${item}`)
+    .join("\n");
+  const unknowns = input.investmentMemo.unknowns.map((item) => `- ${item}`).join("\n");
+
+  return [
+    `Recommendation: ${input.investmentMemo.recommendation}`,
+    `Conviction: ${input.investmentMemo.conviction}`,
+    `Coverage profile: ${input.investmentMemo.coverageProfile}`,
+    `Verdict: ${input.investmentMemo.verdict}`,
+    `Thesis: ${input.investmentMemo.thesis}`,
+    `Anti-thesis: ${input.investmentMemo.antiThesis}`,
+    `Business snapshot: ${input.investmentMemo.businessSnapshot}`,
+    `Valuation case: ${input.investmentMemo.valuationCase}`,
+    `Why now:\n${whyNow}`,
+    `Key disqualifier: ${input.investmentMemo.keyDisqualifier}`,
+    `Upside case: ${input.investmentMemo.upsideCase}`,
+    `Downside case: ${input.investmentMemo.downsideCase}`,
+    `Key risks:\n${keyRisks}`,
+    `What improves confidence:\n${improveConfidence}`,
+    `What reduces confidence:\n${reduceConfidence}`,
+    `Verified facts:\n${verifiedFacts}`,
+    `Unknowns:\n${unknowns}`,
+  ].join("\n");
+}
+
 function buildPrompt(input: NarrativeInput): string {
   return `You are writing an institutional-quality research note for investment professionals on ${input.company}.
 
 Entity resolution:
 ${formatEntityResolution(input)}
+
+Investment memo anchor:
+${formatInvestmentMemo(input)}
 
 Available data (from: ${input.waterfallResult.activeSources.join(", ")}):
 ${formatMetrics(input)}
@@ -380,6 +420,7 @@ Rules:
 - If data comes primarily from fallback web search, say so clearly.
 - If the company is covered mainly by Companies House, use registry/accounts metadata to describe the legal entity and filing timetable, but do not pretend full financial-statement coverage exists.
 - If management-style positioning and Street evidence appear to diverge, call that out explicitly.
+- The Executive Summary should read like an investment memo opening and stay aligned with the memo anchor unless the evidence blocks force a more cautious interpretation.
 - Write each section heading as plain uppercase text only. Do not add markdown symbols like ** or ## around headings.
 - Return plain text with these EXACT section headings on their own lines:
 EXECUTIVE SUMMARY

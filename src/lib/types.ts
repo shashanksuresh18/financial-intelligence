@@ -176,6 +176,70 @@ export type ResearchNoteSection = {
   readonly body: string;
 };
 
+export type InvestmentRecommendation = "buy" | "watch" | "hold" | "avoid";
+
+export type CoverageProfile =
+  | "Strong public coverage"
+  | "Mixed public coverage"
+  | "Registry-led private coverage"
+  | "Ambiguous entity"
+  | "Limited evidence";
+
+export type InvestmentRiskCategory =
+  | "structural"
+  | "execution"
+  | "regulatory"
+  | "market"
+  | "data-quality";
+
+export type InvestmentRisk = {
+  readonly title: string;
+  readonly detail: string;
+  readonly category: InvestmentRiskCategory;
+  readonly rank: number;
+};
+
+export type RecommendationLogicStrength = "strong" | "mixed" | "weak";
+
+export type RecommendationFreshness = "fresh" | "reasonable" | "stale";
+
+export type RecommendationGapLoad = "contained" | "meaningful" | "heavy";
+
+export type RecommendationLogic = {
+  readonly entityCertainty: RecommendationLogicStrength;
+  readonly financialDepth: "strong" | "adequate" | "thin";
+  readonly valuationSupport: RecommendationLogicStrength;
+  readonly streetSignals: RecommendationLogicStrength;
+  readonly freshness: RecommendationFreshness;
+  readonly dataGaps: RecommendationGapLoad;
+  readonly tensions: "clear" | "present";
+  readonly supportingReasons: readonly string[];
+  readonly confidenceLimitingReasons: readonly string[];
+};
+
+export type InvestmentMemo = {
+  readonly recommendation: InvestmentRecommendation;
+  readonly conviction: ConfidenceLevel;
+  readonly coverageProfile: CoverageProfile;
+  readonly verdict: string;
+  readonly whyNow: readonly string[];
+  readonly keyDisqualifier: string;
+  readonly thesis: string;
+  readonly antiThesis: string;
+  readonly businessSnapshot: string;
+  readonly valuationCase: string;
+  readonly upsideCase: string;
+  readonly downsideCase: string;
+  readonly keyRisks: readonly InvestmentRisk[];
+  readonly catalystsToMonitor: readonly string[];
+  readonly whatImprovesConfidence: readonly string[];
+  readonly whatReducesConfidence: readonly string[];
+  readonly verifiedFacts: readonly string[];
+  readonly reasonedInference: readonly string[];
+  readonly unknowns: readonly string[];
+  readonly logic: RecommendationLogic;
+};
+
 export type ReportDelta = {
   readonly title: string;
   readonly detail: string;
@@ -271,6 +335,7 @@ export type AnalysisReport = {
   readonly company: string;
   readonly entityResolution: EntityResolution;
   readonly summary: string;
+  readonly investmentMemo: InvestmentMemo;
   readonly narrative: string;
   readonly sections: readonly ResearchNoteSection[];
   readonly confidence: ConfidenceScore;
@@ -693,6 +758,7 @@ export type WaterfallResult = {
 export type NarrativeInput = {
   readonly company: string;
   readonly entityResolution: EntityResolution;
+  readonly investmentMemo: InvestmentMemo;
   readonly waterfallResult: WaterfallResult;
   readonly confidence: ConfidenceScore;
   readonly evidenceSignals: readonly EvidenceSignal[];
@@ -771,6 +837,65 @@ export const placeholderAnalysisReport: AnalysisReport = {
     note: "No entity resolution has been generated yet.",
   },
   summary: "No analysis has been generated yet.",
+  investmentMemo: {
+    recommendation: "watch",
+    conviction: "low",
+    coverageProfile: "Limited evidence",
+    verdict:
+      "Watch: the current report is still empty, so there is no defendable investment conclusion yet.",
+    whyNow: ["No evidence-backed investment memo is available yet."],
+    keyDisqualifier:
+      "There is not enough entity, valuation, or operating evidence on the page yet.",
+    thesis:
+      "No thesis can be defended until the report gathers grounded evidence.",
+    antiThesis:
+      "The anti-thesis is simply that the evidence stack is still blank.",
+    businessSnapshot:
+      "Run an analysis to populate the business snapshot with grounded company and market context.",
+    valuationCase:
+      "Valuation support cannot be assessed until the report gathers structured market or filing evidence.",
+    upsideCase:
+      "Upside cannot be defended until the report has gathered valuation and company-specific evidence.",
+    downsideCase:
+      "Downside cannot be quantified until the report has gathered enough evidence to support a view.",
+    keyRisks: [
+      {
+        title: "No active evidence set",
+        detail: "The report is empty, so any recommendation would be premature.",
+        category: "data-quality",
+        rank: 1,
+      },
+    ],
+    catalystsToMonitor: [
+      "Run an analysis to generate the first evidence-backed investment read.",
+    ],
+    whatImprovesConfidence: [
+      "A fresh run with grounded company evidence will populate the memo.",
+    ],
+    whatReducesConfidence: [
+      "Continuing without grounded evidence would make any recommendation less trustworthy.",
+    ],
+    verifiedFacts: ["No verified facts are available until the first analysis run completes."],
+    reasonedInference: [
+      "The current state suggests waiting for a grounded evidence set before forming a view.",
+    ],
+    unknowns: [
+      "All core inputs are still unknown until the first analysis run completes.",
+    ],
+    logic: {
+      entityCertainty: "weak",
+      financialDepth: "thin",
+      valuationSupport: "weak",
+      streetSignals: "weak",
+      freshness: "stale",
+      dataGaps: "heavy",
+      tensions: "clear",
+      supportingReasons: [],
+      confidenceLimitingReasons: [
+        "The report has not gathered any grounded evidence yet.",
+      ],
+    },
+  },
   narrative: "Run an analysis to populate this report with source-backed findings.",
   sections: [],
   confidence: placeholderConfidence,
