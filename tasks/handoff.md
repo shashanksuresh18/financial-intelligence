@@ -1,50 +1,194 @@
-# Entity Disambiguation and Registry Noise Suppression
+# Analyzer Decomposition — Agent Extraction Plan
 
-## Phase Status
+## Context
 
-| Phase | Status | Notes |
-|-------|--------|-------|
-| Plan | Complete | Written 2026-04-17 |
-| Implementation | Complete | `finnhub.ts` Phase 2 disambiguation fixes applied |
-| TypeScript | Pass | `npx tsc --noEmit` via `npx.cmd` - zero errors |
-| Verification | Pass | Resolver script confirms all 5 target companies |
+`src/lib/analyzer.ts` is 2,197 lines — nearly 3× the 800-line hard cap in CLAUDE.md. The file conflates three distinct responsibilities:
 
-## Verification Results (2026-04-17)
+| Responsibility | Current location | Lines (approx) |
+|----------------|-----------------|----------------|
+| Waterfall fetch orchestration | `runWaterfall` + helpers | ~190 |
+| Entity identity resolution | `buildEntityResolution` + helpers | ~230 |
+| Report assembly (metrics, signals, audit, deltas) | Everything else | ~1,780 |
 
-### TypeScript
+This plan extracts the first two responsibilities into focused agent files, leaving report assembly in `analyzer.ts` and keeping the public API surface unchanged.
 
-`npx tsc --noEmit` - zero errors.
+---
 
-### Resolver verification script
+## Target File Layout
 
-Temporary Node script imported `resolveFinnhubSymbol` and verified:
-
-| Query | Expected winner | Actual winner | `isAmbiguous` | Pass? |
-|-------|-----------------|---------------|---------------|-------|
-| HSBC | `HSBA.L` | `HSBA.L` | false | Yes |
-| Shell | `SHEL.L` | `SHEL.L` | false | Yes |
-| Virgin | `SPCE` | `SPCE` | false | Yes |
-| Apple | `AAPL` | `AAPL` | false | Yes |
-| Microsoft | `MSFT` | `MSFT` | false | Yes |
-
-Console output:
-
-```text
-HSBC=HSBA.L, Shell=SHEL.L, Virgin=SPCE, Apple=AAPL, Microsoft=MSFT
+```
+src/lib/
+├── agents/
+│   ├── entity-agent.ts          ← NEW  (~230 lines)
+│   └── market-data-agent.ts     ← NEW  (~190 lines)
+├── analyzer.ts                  ← MODIFIED  (imports from agents, loses ~420 lines)
+├── datasources/                 ← UNCHANGED
+└── types.ts                     ← UNCHANGED
 ```
 
-The temporary verification script was deleted after the run.
+`src/app/api/analyze/route.ts` is **not touched**. It still imports only `analyzeCompany` and `attachReportDeltas` from `@/lib/analyzer`.
 
-## Fixes Applied
+---
 
-### `src/lib/datasources/finnhub.ts`
+## File 1 — `src/lib/agents/entity-agent.ts`
 
-1. `getExchangeTier`
-   Unknown 1-2 letter suffixes now default to Tier 1 instead of Tier 0. Only suffixes explicitly listed in `PRIMARY_EXCHANGE_SUFFIXES` qualify as Tier 0.
+### What moves here
 
-2. `findPromotableCommonStockAlternative`
-   ADR promotion now uses a two-pass search:
-   - first pass prefers Tier 0 common stock alternatives
-   - second pass falls back to Tier 1 common stock alternatives
+Move these functions verbatim from `analyzer.ts`:
 
-This fixes the HSBC failure mode where `HSB.MT` could outrank `HSBA.L` because the ranked array was walked in market-cap order.
+| Function | approx line in analyzer.ts |
+|----------|---------------------------|
+| `addEntityIdentifier` | 920–946 |
+| `normalizeEntityName` | 948–954 |
+| `hasUkLegalSuffix` | 956–966 |
+| `shouldUseCompaniesHouseCorroboration` | 968–1002 |
+| `buildEntityResolution` | 1004–1152 |
+
+### Public export
+
+```typescript
+export { buildEntityResolution };
+```
+
+Everything else (`addEntityIdentifier`, `normalizeEntityName`, `hasUkLegalSuffix`, `shouldUseCompaniesHouseCorroboration`) remains unexported — it is internal to this file.
+
+### Imports needed
+
+```typescript
+import type {
+  DataSource,
+  EntityIdentifier,
+  EntityResolution,
+  WaterfallResult,
+} from "@/lib/types";
+```
+
+No other dependencies. No datasource imports. No analyzer imports.
+
+---
+
+## File 2 — `src/lib/agents/market-data-agent.ts`
+
+### What moves here
+
+Move these items verbatim from `analyzer.ts`:
+
+| Item | approx line in analyzer.ts |
+|------|---------------------------|
+| `CH_SKIP_MCAP_THRESHOLD_USDm` constant | 43 |
+| `INTERNATIONAL_EXCHANGE_SUFFIXES` set | 44–70 |
+| `wrapSource` | 72–87 |
+| `isUsPrimaryListingSymbol` | 89–102 |
+| `shouldSkipCompaniesHouseLookup` | 104–125 |
+| `buildActiveSources` | ~1955–1967 |
+| `runWaterfall` | 1969–2064 |
+
+### Public export
+
+```typescript
+export { runWaterfall };
+```
+
+All other items are unexported — internal to this file.
+
+### Imports needed
+
+```typescript
+import type {
+  DataSource,
+  DataSourceResult,
+  FinancialMetric,
+  WaterfallInput,
+  WaterfallResult,
+} from "@/lib/types";
+import { fetchClaudeFallbackData } from "@/lib/datasources/claude-fallback";
+import { fetchCompaniesHouseData } from "@/lib/datasources/companies-house";
+import { fetchFinnhubData } from "@/lib/datasources/finnhub";
+import { fetchFmpData } from "@/lib/datasources/fmp";
+import { fetchGleifData } from "@/lib/datasources/gleif";
+import { fetchSecEdgarData } from "@/lib/datasources/sec-edgar";
+```
+
+No imports from `analyzer.ts`. No imports from `entity-agent.ts`.
+
+---
+
+## File 3 — `src/lib/analyzer.ts` (modifications)
+
+### Add imports
+
+```typescript
+import { buildEntityResolution } from "@/lib/agents/entity-agent";
+import { runWaterfall } from "@/lib/agents/market-data-agent";
+```
+
+### Remove imports
+
+Remove the datasource imports that `market-data-agent.ts` will now own:
+
+```typescript
+// DELETE these from analyzer.ts imports:
+import { fetchClaudeFallbackData } from "@/lib/datasources/claude-fallback";
+import { fetchCompaniesHouseData } from "@/lib/datasources/companies-house";
+import { fetchFinnhubData } from "@/lib/datasources/finnhub";
+import { fetchFmpData } from "@/lib/datasources/fmp";
+import { fetchGleifData } from "@/lib/datasources/gleif";
+import { fetchSecEdgarData, extractLatestFact, ... } from "@/lib/datasources/sec-edgar";
+```
+
+Note: `extractLatestFact`, `NET_INCOME_CONCEPTS`, and `REVENUE_CONCEPTS` are still used by `extractXbrlMetrics` in `analyzer.ts`. Keep that sec-edgar import. Remove only the fetch functions.
+
+Revised sec-edgar import:
+```typescript
+import {
+  extractLatestFact,
+  NET_INCOME_CONCEPTS,
+  REVENUE_CONCEPTS,
+} from "@/lib/datasources/sec-edgar";
+```
+
+### Remove extracted blocks
+
+Delete verbatim the five entity-agent functions and the seven market-data-agent items listed above.
+
+### Remove from type import list
+
+Remove `WaterfallInput` from the `@/lib/types` import in `analyzer.ts` — it is no longer referenced there.
+
+### `analyzeCompany` body: no changes
+
+`analyzeCompany` already calls `runWaterfall({ query })` and `buildEntityResolution(query, waterfallResult)`. Once those come from the agents instead of local definitions, the body is identical.
+
+### Net result
+
+`analyzer.ts` loses ~420 lines. It will be approximately 1,780 lines — still above the 800-line cap, but that reduction is out of scope for this plan.
+
+---
+
+## Backward Compatibility
+
+| Caller | Import | Change required |
+|--------|--------|-----------------|
+| `src/app/api/analyze/route.ts` | `analyzeCompany`, `attachReportDeltas` from `@/lib/analyzer` | None |
+| Tests (if any reference `runWaterfall` or `buildEntityResolution`) | From `@/lib/analyzer` | Update import path to agent file |
+| Any other internal caller | — | Check with grep before implementing |
+
+Run before implementing:
+```
+grep -r "runWaterfall\|buildEntityResolution" src/
+```
+
+---
+
+## Verification Plan
+
+1. `npx tsc --noEmit` — zero errors
+2. `npm run lint` — zero errors
+3. `npm run dev` starts and `/api/analyze` responds correctly for at least one company (e.g. Apple)
+4. No circular imports: agents → types and datasources only; analyzer → agents, confidence, narrative, investment-memo
+
+---
+
+## Out of Scope
+
+`analyzer.ts` will remain ~1,780 lines after this extraction. Further decomposition (e.g. extracting evidence-signal builders, section audit, report delta comparison into their own files) would reduce it to under 800 lines but is not part of this plan.
