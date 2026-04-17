@@ -352,12 +352,12 @@ export function computeConfidence(
   result: WaterfallResult,
   entityResolution: EntityResolution,
 ): ConfidenceScore {
-  const components = [
+  const components: ConfidenceComponent[] = [
     buildIdentityComponent(result, entityResolution),
     buildFinancialsComponent(result),
     buildStreetComponent(result),
     buildFreshnessComponent(result),
-  ] as const;
+  ];
   const score = components.reduce((total, component) => total + component.score, 0);
   const level = getLevel(score);
   const strongestComponents = [...components]
@@ -372,10 +372,27 @@ export function computeConfidence(
           " and ",
         )}; see breakdown for source-specific coverage.`;
 
+  const isAmbiguous = result.finnhub?.data.isAmbiguous ?? false;
+  let finalScore = score;
+  let finalLevel = level;
+  let finalRationale = rationale;
+
+  if (isAmbiguous) {
+    components.push({
+      key: "identity",
+      label: "Ambiguity Penalty",
+      score: - (score / 2),
+      rationale: "Multiple strong candidates exist for this company name; lowering confidence.",
+    });
+    finalScore = Math.floor(score / 2);
+    finalLevel = getLevel(finalScore);
+    finalRationale = "Entity resolution is ambiguous. " + rationale;
+  }
+
   return {
-    score,
-    level,
-    rationale,
+    score: finalScore,
+    level: finalLevel,
+    rationale: finalRationale,
     components,
   };
 }

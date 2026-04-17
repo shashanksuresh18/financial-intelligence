@@ -16,6 +16,14 @@
 - [x] Step 12: Frontend dashboard (verify: browser test full flow)
 - [x] Step 13: Final simplification pass
 
+## Phase A: Memo-First Refactor
+
+- [x] Step 1: Claude Code — Refactor UI
+
+## Phase B: Entity Disambiguation
+
+- [x] Step 4 & 5: Rank multiple candidates by market cap, prefer holding company, flag ambiguous names below 50% confidence.
+
 ---
 
 ## Project Status — Complete

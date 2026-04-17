@@ -2110,6 +2110,7 @@ export async function analyzeCompany(query: string): Promise<AnalysisReport> {
     sectionAudit,
     newsHighlights,
     sources: waterfallResult.activeSources,
+    isAmbiguous: waterfallResult.finnhub?.data.isAmbiguous ?? false,
     updatedAt: new Date().toISOString(),
   };
 }

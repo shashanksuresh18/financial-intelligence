@@ -90,6 +90,7 @@ curl "https://api.company-information.service.gov.uk/search/companies?q=Revolut"
 - **Never mark a task complete without proving it works.**
 - After building a data source client: call the real API, inspect the response, confirm types match.
 - After building the analyzer: test with "Apple" (US), "Revolut" (UK), "Deutsche Bank" (GLEIF), "SpaceX" (fallback).
+- After changing entity resolution, verify primary-listing selection and ambiguity filtering with HSBC, Shell, Virgin, Apple, and Microsoft scenarios.
 - After building the frontend: open browser, test search, confirm report renders with confidence badge.
 - Run typecheck and lint before every commit.
 - Ask yourself: "Would a senior engineer approve this?"

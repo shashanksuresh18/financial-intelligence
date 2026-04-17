@@ -353,6 +353,7 @@ export type AnalysisReport = {
   readonly sectionAudit: readonly SectionAuditItem[];
   readonly newsHighlights: readonly NewsHighlight[];
   readonly sources: readonly DataSource[];
+  readonly isAmbiguous?: boolean;
   readonly updatedAt: string;
 };
 
@@ -464,6 +465,8 @@ export type FinnhubData = {
   readonly priceTargetNote?: string;
   readonly earnings: readonly FinnhubEarningsEvent[];
   readonly insiderTransactions: readonly FinnhubInsiderTransaction[];
+  readonly isAmbiguous?: boolean;
+  readonly alternatives?: readonly FinnhubSymbolMatch[];
 };
 
 export type FmpHistoricalMultiple = {
