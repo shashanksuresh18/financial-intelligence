@@ -6,6 +6,7 @@ import ActiveSnapshotPanel from "@/components/ActiveSnapshotPanel";
 import MonitorList from "@/components/MonitorList";
 import Report from "@/components/Report";
 import SearchBar from "@/components/SearchBar";
+import ThemePanel from "@/components/ThemePanel";
 import type {
   AnalysisReport,
   AnalyzeApiResponse,
@@ -27,6 +28,7 @@ const ANALYSIS_STAGE_MESSAGES = [
 ] as const;
 
 type MonitorSortKey = "confidence" | "freshness" | "evidence-depth";
+type ActiveTab = "company" | "themes";
 
 function getResultMeta(result: SearchResult): string {
   const parts = [
@@ -39,6 +41,7 @@ function getResultMeta(result: SearchResult): string {
 }
 
 export default function Home(): JSX.Element {
+  const [activeTab, setActiveTab] = useState<ActiveTab>("company");
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<readonly SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -289,6 +292,13 @@ export default function Home(): JSX.Element {
     handleSearch(submittedQuery);
   };
 
+  const handleThemeCompanySelect = (companyName: string): void => {
+    setActiveTab("company");
+    setQuery(companyName);
+    setError(null);
+    void runAnalysis(companyName);
+  };
+
   const handleWatch = async (result: SearchResult): Promise<void> => {
     setError(null);
 
@@ -425,221 +435,266 @@ export default function Home(): JSX.Element {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(6,78,59,0.26),transparent_30%),radial-gradient(circle_at_80%_10%,_rgba(14,165,233,0.16),transparent_18%),linear-gradient(180deg,rgba(24,24,27,0.25),transparent_45%)]" />
 
       <div className="relative mx-auto flex max-w-[96rem] flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
-        {!hasReport ? (
-          <section className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_24rem]">
-            <div className="rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-6 py-7 shadow-[0_32px_120px_-72px_rgba(16,185,129,0.45)] backdrop-blur">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-200/80">
-                Financial Intelligence
-              </p>
-              <h1 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-zinc-50 sm:text-5xl">
-                Source-backed company analysis for fast diligence.
-              </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400 sm:text-base">
-                Search any company to pull structured metrics, confidence scoring,
-                analyst signals, and source attribution across market, filing, and
-                registry datasets.
-              </p>
+        <div
+          aria-label="Analysis mode"
+          className="flex w-fit gap-1 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-1"
+          role="tablist"
+        >
+          <button
+            aria-selected={activeTab === "company"}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+              activeTab === "company"
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-500 hover:text-zinc-300"
+            }`}
+            onClick={() => {
+              setActiveTab("company");
+            }}
+            role="tab"
+            type="button"
+          >
+            Company
+          </button>
+          <button
+            aria-selected={activeTab === "themes"}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+              activeTab === "themes"
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-500 hover:text-zinc-300"
+            }`}
+            onClick={() => {
+              setActiveTab("themes");
+            }}
+            role="tab"
+            type="button"
+          >
+            Themes
+          </button>
+        </div>
 
-              <div className="relative mt-8">
-                <SearchBar
-                  disabled={isAnalyzing}
-                  onSearch={handleSearch}
-                  onSubmit={handleSubmit}
-                  placeholder="Search any company..."
-                />
-                {searchDropdown}
-              </div>
+        {activeTab === "company" ? (
+          <>
+            {!hasReport ? (
+              <section className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_24rem]">
+                <div className="rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-6 py-7 shadow-[0_32px_120px_-72px_rgba(16,185,129,0.45)] backdrop-blur">
+                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-200/80">
+                    Financial Intelligence
+                  </p>
+                  <h1 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-zinc-50 sm:text-5xl">
+                    Source-backed company analysis for fast diligence.
+                  </h1>
+                  <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400 sm:text-base">
+                    Search any company to pull structured metrics, confidence scoring,
+                    analyst signals, and source attribution across market, filing, and
+                    registry datasets.
+                  </p>
 
-              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
-                <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
-                  Debounced live search
-                </span>
-                <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
-                  {query.trim().length >= MIN_QUERY_LENGTH
-                    ? `${searchResults.length} candidate matches`
-                    : "Type at least 2 characters"}
-                </span>
-                {isSearching ? (
-                  <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-200">
-                    Searching live sources
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="rounded-[2rem] border border-zinc-800 bg-zinc-950/75 p-6 shadow-[0_24px_80px_-48px_rgba(0,0,0,0.95)]">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                Coverage
-              </p>
-              <div className="mt-5 grid gap-4">
-                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Watched</p>
-                  <p className="mt-2 text-3xl font-semibold text-zinc-50">
-                    {monitorItems.length}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Report status</p>
-                  <p className="mt-2 text-sm font-medium text-zinc-200">
-                    {reportStatus}
-                  </p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
-                    Live query
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-300">
-                    {query.trim().length > 0 ? query.trim() : "None"}
-                  </p>
-                  <p className="mt-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
-                    Loaded report
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-300">
-                    {loadedReportLabel ?? "None"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </section>
-        ) : (
-          <div className="relative rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-5 py-4 backdrop-blur">
-            <SearchBar
-              disabled={isAnalyzing}
-              onSearch={handleSearch}
-              onSubmit={handleSubmit}
-              placeholder="Search another company..."
-            />
-            {searchDropdown}
-          </div>
-        )}
-
-        <section className="grid gap-8 xl:grid-cols-[minmax(0,1.35fr)_24rem]">
-          <div className="space-y-4">
-            {isAnalyzing ? (
-              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-5 py-4 text-sm text-emerald-100">
-                <div className="flex items-start gap-4">
-                  <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/12">
-                    <svg
-                      aria-hidden="true"
-                      className="h-5 w-5 animate-spin text-emerald-200"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                      />
-                      <path
-                        className="opacity-90"
-                        d="M22 12a10 10 0 0 1-10 10"
-                        stroke="currentColor"
-                        strokeLinecap="round"
-                        strokeWidth="3"
-                      />
-                    </svg>
+                  <div className="relative mt-8">
+                    <SearchBar
+                      disabled={isAnalyzing}
+                      value={query}
+                      onSearch={handleSearch}
+                      onSubmit={handleSubmit}
+                      placeholder="Search any company..."
+                    />
+                    {searchDropdown}
                   </div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-emerald-50">
-                      Building analysis report for {pendingQuery ?? "the current query"}...
-                    </p>
-                    <p className="mt-1 leading-6 text-emerald-100/85">
-                      {ANALYSIS_STAGE_MESSAGES[analysisStageIndex]}
-                    </p>
-                    <p className="mt-2 text-xs uppercase tracking-[0.16em] text-emerald-200/70">
-                      Hosted runs can take up to 3 minutes on multi-source and private-company research workflows.
-                    </p>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
+                    <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
+                      Debounced live search
+                    </span>
+                    <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
+                      {query.trim().length >= MIN_QUERY_LENGTH
+                        ? `${searchResults.length} candidate matches`
+                        : "Type at least 2 characters"}
+                    </span>
+                    {isSearching ? (
+                      <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-200">
+                        Searching live sources
+                      </span>
+                    ) : null}
                   </div>
                 </div>
-              </div>
-            ) : null}
 
-            {error ? (
-              <div className="rounded-2xl border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-                {error}
-              </div>
-            ) : null}
-
-            {report ? (
-              <Report
-                isRefreshing={isAnalyzing}
-                onRefresh={handleRefresh}
-                report={report}
-              />
-            ) : isAnalyzing ? (
-              <section className="rounded-[2rem] border border-zinc-800 bg-zinc-950/60 px-6 py-8 shadow-[0_24px_80px_-48px_rgba(0,0,0,0.95)]">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                  Analysis In Progress
-                </p>
-                <h2 className="mt-4 text-2xl font-semibold tracking-tight text-zinc-50">
-                  We&apos;re assembling the dashboard report for {pendingQuery ?? "your selected company"}.
-                </h2>
-                <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400">
-                  The hosted demo can take a little longer while it resolves the company,
-                  gathers evidence, and generates the institutional note. You can keep this
-                  page open while the report is being built.
-                </p>
-                <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-500">
-                  First-run private or registry-led names are often the slowest because the
-                  hosted app is warming up external sources and saving the initial snapshot.
-                </p>
-                <div className="mt-8 grid gap-4 md:grid-cols-2">
-                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
-                    <div className="h-3 w-28 rounded-full bg-zinc-800" />
-                    <div className="mt-5 h-10 w-3/4 rounded-2xl bg-zinc-800/80" />
-                    <div className="mt-4 space-y-3">
-                      <div className="h-3 w-full rounded-full bg-zinc-900" />
-                      <div className="h-3 w-5/6 rounded-full bg-zinc-900" />
-                      <div className="h-3 w-3/5 rounded-full bg-zinc-900" />
+                <div className="rounded-[2rem] border border-zinc-800 bg-zinc-950/75 p-6 shadow-[0_24px_80px_-48px_rgba(0,0,0,0.95)]">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                    Coverage
+                  </p>
+                  <div className="mt-5 grid gap-4">
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Watched</p>
+                      <p className="mt-2 text-3xl font-semibold text-zinc-50">
+                        {monitorItems.length}
+                      </p>
                     </div>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
-                    <div className="h-3 w-32 rounded-full bg-zinc-800" />
-                    <div className="mt-5 grid grid-cols-2 gap-3">
-                      <div className="h-20 rounded-2xl bg-zinc-900" />
-                      <div className="h-20 rounded-2xl bg-zinc-900" />
-                      <div className="h-20 rounded-2xl bg-zinc-900" />
-                      <div className="h-20 rounded-2xl bg-zinc-900" />
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Report status</p>
+                      <p className="mt-2 text-sm font-medium text-zinc-200">
+                        {reportStatus}
+                      </p>
+                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
+                        Live query
+                      </p>
+                      <p className="mt-1 text-sm text-zinc-300">
+                        {query.trim().length > 0 ? query.trim() : "None"}
+                      </p>
+                      <p className="mt-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
+                        Loaded report
+                      </p>
+                      <p className="mt-1 text-sm text-zinc-300">
+                        {loadedReportLabel ?? "None"}
+                      </p>
                     </div>
                   </div>
                 </div>
               </section>
             ) : (
-              <section className="rounded-[2rem] border border-dashed border-zinc-800 bg-zinc-950/60 px-6 py-10">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                  No Active Report
-                </p>
-                <h2 className="mt-4 text-2xl font-semibold tracking-tight text-zinc-50">
-                  Select a company from autocomplete to generate the dashboard report.
-                </h2>
-                <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400">
-                  The report panel will render confidence, narrative analysis,
-                  financial metrics, analyst consensus, and data-source attribution
-                  once a result is selected from the live search dropdown.
-                </p>
-              </section>
+              <div className="relative rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-5 py-4 backdrop-blur">
+                <SearchBar
+                  disabled={isAnalyzing}
+                  value={query}
+                  onSearch={handleSearch}
+                  onSubmit={handleSubmit}
+                  placeholder="Search another company..."
+                />
+                {searchDropdown}
+              </div>
             )}
-          </div>
 
-          <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
-            <MonitorList
-              activeItemLabel={loadedReportLabel}
-              disabled={isAnalyzing}
-              items={monitorItems}
-              onRemove={(item) => {
-                void handleMonitorRemove(item);
-              }}
-              onSelect={handleMonitorSelect}
-              onSortChange={setMonitorSortKey}
-              sortKey={monitorSortKey}
-            />
-            <ActiveSnapshotPanel
-              isAnalyzing={isAnalyzing}
-              report={report}
-            />
-          </aside>
-        </section>
+            <section className="grid gap-8 xl:grid-cols-[minmax(0,1.35fr)_24rem]">
+              <div className="space-y-4">
+                {isAnalyzing ? (
+                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-5 py-4 text-sm text-emerald-100">
+                    <div className="flex items-start gap-4">
+                      <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/12">
+                        <svg
+                          aria-hidden="true"
+                          className="h-5 w-5 animate-spin text-emerald-200"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                          />
+                          <path
+                            className="opacity-90"
+                            d="M22 12a10 10 0 0 1-10 10"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeWidth="3"
+                          />
+                        </svg>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-emerald-50">
+                          Building analysis report for {pendingQuery ?? "the current query"}...
+                        </p>
+                        <p className="mt-1 leading-6 text-emerald-100/85">
+                          {ANALYSIS_STAGE_MESSAGES[analysisStageIndex]}
+                        </p>
+                        <p className="mt-2 text-xs uppercase tracking-[0.16em] text-emerald-200/70">
+                          Hosted runs can take up to 3 minutes on multi-source and private-company research workflows.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {error ? (
+                  <div className="rounded-2xl border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+                    {error}
+                  </div>
+                ) : null}
+
+                {report ? (
+                  <Report
+                    isRefreshing={isAnalyzing}
+                    onRefresh={handleRefresh}
+                    report={report}
+                  />
+                ) : isAnalyzing ? (
+                  <section className="rounded-[2rem] border border-zinc-800 bg-zinc-950/60 px-6 py-8 shadow-[0_24px_80px_-48px_rgba(0,0,0,0.95)]">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                      Analysis In Progress
+                    </p>
+                    <h2 className="mt-4 text-2xl font-semibold tracking-tight text-zinc-50">
+                      We&apos;re assembling the dashboard report for {pendingQuery ?? "your selected company"}.
+                    </h2>
+                    <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400">
+                      The hosted demo can take a little longer while it resolves the company,
+                      gathers evidence, and generates the institutional note. You can keep this
+                      page open while the report is being built.
+                    </p>
+                    <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-500">
+                      First-run private or registry-led names are often the slowest because the
+                      hosted app is warming up external sources and saving the initial snapshot.
+                    </p>
+                    <div className="mt-8 grid gap-4 md:grid-cols-2">
+                      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+                        <div className="h-3 w-28 rounded-full bg-zinc-800" />
+                        <div className="mt-5 h-10 w-3/4 rounded-2xl bg-zinc-800/80" />
+                        <div className="mt-4 space-y-3">
+                          <div className="h-3 w-full rounded-full bg-zinc-900" />
+                          <div className="h-3 w-5/6 rounded-full bg-zinc-900" />
+                          <div className="h-3 w-3/5 rounded-full bg-zinc-900" />
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+                        <div className="h-3 w-32 rounded-full bg-zinc-800" />
+                        <div className="mt-5 grid grid-cols-2 gap-3">
+                          <div className="h-20 rounded-2xl bg-zinc-900" />
+                          <div className="h-20 rounded-2xl bg-zinc-900" />
+                          <div className="h-20 rounded-2xl bg-zinc-900" />
+                          <div className="h-20 rounded-2xl bg-zinc-900" />
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                ) : (
+                  <section className="rounded-[2rem] border border-dashed border-zinc-800 bg-zinc-950/60 px-6 py-10">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                      No Active Report
+                    </p>
+                    <h2 className="mt-4 text-2xl font-semibold tracking-tight text-zinc-50">
+                      Select a company from autocomplete to generate the dashboard report.
+                    </h2>
+                    <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400">
+                      The report panel will render confidence, narrative analysis,
+                      financial metrics, analyst consensus, and data-source attribution
+                      once a result is selected from the live search dropdown.
+                    </p>
+                  </section>
+                )}
+              </div>
+
+              <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
+                <MonitorList
+                  activeItemLabel={loadedReportLabel}
+                  disabled={isAnalyzing}
+                  items={monitorItems}
+                  onRemove={(item) => {
+                    void handleMonitorRemove(item);
+                  }}
+                  onSelect={handleMonitorSelect}
+                  onSortChange={setMonitorSortKey}
+                  sortKey={monitorSortKey}
+                />
+                <ActiveSnapshotPanel
+                  isAnalyzing={isAnalyzing}
+                  report={report}
+                />
+              </aside>
+            </section>
+          </>
+        ) : (
+          <ThemePanel onCompanySelect={handleThemeCompanySelect} />
+        )}
       </div>
     </main>
   );

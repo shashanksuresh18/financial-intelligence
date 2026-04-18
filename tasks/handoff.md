@@ -1,3 +1,559 @@
+# Phase 8: Thematic Intelligence MVP — Plan
+
+## Status
+
+Implementation reviewed and confirmed correct. Ready for browser testing.
+
+---
+
+## Completion Summary
+
+### Files Changed
+
+| File | Change | Actual lines |
+|------|--------|--------------|
+| `src/lib/types.ts` | Added `ThemeCompany`, `ThemeResult`, `ThemeApiResponse` after `ExaDeepData` (lines 813–834) | +22 lines |
+| `src/lib/agents/theme-agent.ts` | New Exa Deep theme agent using `exa.search()` with `type: “deep”`, `DeepOutputSchema` constraint, and structured `output.content` parsing | 262 |
+| `src/app/api/themes/route.ts` | POST route with 400/422/500 error handling | 45 |
+| `src/components/ThemePanel.tsx` | Client component: loading/error/results states, exposure bars, related-theme reruns, company click-through | 433 |
+| `src/app/page.tsx` | Tab state (`ActiveTab`), tab strip with `role=”tablist”`, ThemePanel mount, `handleThemeCompanySelect` | net +55 lines |
+| `src/components/SearchBar.tsx` | Added optional `value` prop for controlled mode (theme handoff) | 85 |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cmd /c npx tsc --noEmit` | ✓ zero errors |
+| `cmd /c npm run lint` | ✓ zero warnings |
+| `ThemeCompany`, `ThemeResult`, `ThemeApiResponse` in types.ts after `ExaDeepData` | ✓ lines 813–834 |
+| Theme agent: `exa.search()` with `type: “deep”`, `satisfies DeepOutputSchema` | ✓ exa-js@2.11.0 |
+| Theme agent: `normalizeExposureScore` clamps to [0, 100] | ✓ |
+| Theme agent: companies sorted desc by exposureScore, sliced to 10 | ✓ |
+| Theme agent: never throws — returns `emptyThemeResult` on all failure paths | ✓ |
+| Theme agent: `output.content` parsed via `parseStructuredThemeContent` (handles object or JSON string) | ✓ |
+| Theme agent: grounding logged at debug level only, not surfaced in API response | ✓ |
+| API route: 400 empty theme, 400 >500 chars, 422 zero companies+empty desc, 500 unexpected | ✓ |
+| ThemePanel: “use client” directive, `onCompanySelect` prop | ✓ |
+| ThemePanel: loading spinner + 3s cycling messages | ✓ |
+| ThemePanel: exposure bar colors emerald ≥80, amber ≥60, zinc <60 | ✓ |
+| ThemePanel: company name click calls `onCompanySelect` | ✓ |
+| ThemePanel: related theme click sets query + re-runs `handleExplore` | ✓ |
+| page.tsx: `activeTab` state (`”company” \| “themes”`), tab strip above main content | ✓ |
+| page.tsx: `handleThemeCompanySelect` — switches tab, sets query, calls `runAnalysis` | ✓ line 295 |
+| page.tsx: Company tab contains all existing layout including sidebar | ✓ |
+| page.tsx: Themes tab renders `<ThemePanel>` only (sidebar not shown) | ✓ |
+| SearchBar: optional controlled `value` prop, falls back to `defaultValue` when omitted | ✓ |
+| All protected files unchanged | ✓ hashes verified (analyzer, orchestrator, all 5 agents, exa-deep, investment-memo, claude-narrative, analyze route) |
+
+### Deviations from Plan
+
+- **`theme-agent.ts` uses `exa.search()` not `exa.research.create()`**: The installed
+  `exa-js@2.11.0` exposes `exa.search(query, { type: “deep”, outputSchema })` directly.
+  The plan's primary recommendation was `research.create` with the note to verify the
+  SDK version first. Implementation correctly used the available API.
+- **`ThemePanel.tsx` is 433 lines vs ~220 estimated**: The extra lines come from the two
+  sub-components (`SectionCard`, `CompanyCard`) inlined in the same file for cohesion.
+  Within the 800-line cap.
+- **`src/components/SearchBar.tsx` modified (not in plan)**: Added optional controlled
+  `value` prop. Required to make the theme-to-company handoff reliably populate the
+  search input after tab switching. Backward-compatible (prop is optional; existing calls
+  without `value` continue to use `defaultValue` / uncontrolled mode).
+
+### Unchanged Files (hash-verified)
+
+`src/lib/analyzer.ts`, `src/lib/agents/orchestrator.ts`, `src/lib/agents/entity-agent.ts`,
+`src/lib/agents/market-data-agent.ts`, `src/lib/agents/validation-agent.ts`,
+`src/lib/agents/memo-agent.ts`, `src/lib/agents/challenger-agent.ts`,
+`src/lib/datasources/exa-deep.ts`, `src/lib/investment-memo.ts`,
+`src/lib/claude-narrative.ts`, `src/app/api/analyze/route.ts`.
+
+## Overview
+
+Adds a "Themes" tab alongside the existing "Company" search. User types a thematic
+description (e.g. "EV charging infrastructure"); Exa Deep researches the theme and returns
+5-10 companies with exposure scores, rationale, key drivers, headwinds, and related themes.
+Clicking a company in the theme results hands off to the existing Company analysis flow.
+
+This is Amakor's differentiating feature: theme-to-company mapping at PE scale using
+Exa's structured deep research.
+
+---
+
+## Files to Create / Modify
+
+| File | Change |
+|------|--------|
+| `src/lib/types.ts` | Add `ThemeCompany`, `ThemeResult`, `ThemeApiResponse` |
+| `src/lib/agents/theme-agent.ts` | New agent — Exa research for theme exploration |
+| `src/app/api/themes/route.ts` | New POST route |
+| `src/components/ThemePanel.tsx` | New client component |
+| `src/app/page.tsx` | Add tab state + ThemePanel integration |
+
+Files NOT touched: all existing agents, datasources, analyzer, report components,
+route.ts for analyze/search/monitor.
+
+---
+
+## PART 1 — Types (`src/lib/types.ts`)
+
+Add after `ExaDeepData`:
+
+```ts
+export type ThemeCompany = {
+  readonly companyName: string;
+  readonly ticker: string | null;
+  readonly exposureScore: number;   // 0–100, clamped during normalization
+  readonly rationale: string;
+};
+
+export type ThemeResult = {
+  readonly themeName: string;
+  readonly themeDescription: string;
+  readonly companies: readonly ThemeCompany[];
+  readonly keyDrivers: readonly string[];
+  readonly headwinds: readonly string[];
+  readonly relatedThemes: readonly string[];
+  readonly queryTimeMs: number;
+};
+
+export type ThemeApiResponse = {
+  readonly ok: boolean;
+  readonly result?: ThemeResult;
+  readonly error?: string;
+};
+```
+
+`ThemeCompany.exposureScore` is clamped to `[0, 100]` by `normalizeExposureScore` in the
+agent — never trust raw LLM output for numeric bounds.
+
+---
+
+## PART 2 — Theme Agent (`src/lib/agents/theme-agent.ts`)
+
+### API approach
+
+The existing `exa-deep.ts` uses `exa.research.create` + `pollUntilFinished` with an
+`outputSchema` for structured output. The theme agent follows the same pattern, but with
+instructions and a schema that targets a **theme** rather than a single company.
+
+**Important**: The requirements mention `exa.search()` with `type: "deep"`. The existing
+code uses `exa.research.create` (no such `.search()` call exists in `exa-deep.ts`). During
+implementation, verify the installed `exa-js` version and which method is available. If
+`exa.research.create` supports the `numResults` and `category` options described in the
+requirements, use them. Otherwise, follow the `research.create` + `pollUntilFinished`
+pattern exactly as `exa-deep.ts` does, relying on the `instructions` field to scope the
+research to theme-driven company discovery.
+
+### Output schema (6 top-level properties, companies nested at depth 2)
+
+```ts
+const THEME_OUTPUT_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    themeName: {
+      type: "string",
+      description: "Concise canonical name for the investment theme, e.g. 'EV Charging Infrastructure'.",
+    },
+    themeDescription: {
+      type: "string",
+      description: "2-3 sentence explanation of what the theme is and why it matters.",
+    },
+    companies: {
+      type: "array",
+      description: "5–10 companies with meaningful exposure to this theme, ranked by exposure score descending.",
+      items: {
+        type: "object",
+        properties: {
+          companyName: { type: "string", description: "Canonical company name." },
+          ticker:      { type: ["string", "null"], description: "Stock ticker if publicly listed, else null." },
+          exposureScore: { type: "number", description: "0-100 score representing depth of exposure to this theme." },
+          rationale:   { type: "string", description: "1-2 sentence explanation of why this company has exposure." },
+        },
+        required: ["companyName", "ticker", "exposureScore", "rationale"],
+      },
+    },
+    keyDrivers: {
+      type: "array",
+      items: { type: "string" },
+      description: "3-5 structural factors accelerating this theme.",
+    },
+    headwinds: {
+      type: "array",
+      items: { type: "string" },
+      description: "3-5 risks or obstacles to the theme.",
+    },
+    relatedThemes: {
+      type: "array",
+      items: { type: "string" },
+      description: "3-5 adjacent or overlapping investment themes.",
+    },
+  },
+  required: ["themeName", "themeDescription", "companies", "keyDrivers", "headwinds", "relatedThemes"],
+};
+```
+
+### Research instructions template
+
+```ts
+const instructions = `
+Research the investment theme: "${theme}".
+
+Identify 5–10 companies with meaningful exposure to this theme. For each company, assess
+how central this theme is to their business model and revenue streams (exposureScore 0–100).
+Also identify the structural drivers accelerating the theme, the key risks and headwinds,
+and 3–5 related adjacent themes that investors should explore alongside this one.
+
+Focus on companies where this theme accounts for at least 20% of revenue or strategic
+positioning. Include both public companies (with tickers) and major private players.
+`.trim();
+```
+
+### Normalization
+
+```ts
+function normalizeExposureScore(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0;
+}
+
+function normalizeThemeCompany(value: unknown): ThemeCompany | null {
+  if (!isRecord(value)) return null;
+  const companyName = normalizeRequiredString(value["companyName"]);
+  const rationale   = normalizeRequiredString(value["rationale"]);
+  if (companyName === null || rationale === null) return null;
+  return {
+    companyName,
+    ticker: normalizeNullableString(value["ticker"]),
+    exposureScore: normalizeExposureScore(value["exposureScore"]),
+    rationale,
+  };
+}
+
+function normalizeThemeResult(value: unknown, queryTimeMs: number): ThemeResult | null {
+  if (!isRecord(value)) return null;
+  const themeName        = normalizeRequiredString(value["themeName"]);
+  const themeDescription = normalizeRequiredString(value["themeDescription"]);
+  if (themeName === null || themeDescription === null) return null;
+
+  const rawCompanies = Array.isArray(value["companies"]) ? value["companies"] : [];
+  const companies = rawCompanies
+    .map(normalizeThemeCompany)
+    .filter((c): c is ThemeCompany => c !== null)
+    .sort((a, b) => b.exposureScore - a.exposureScore)  // highest exposure first
+    .slice(0, 10);
+
+  return {
+    themeName,
+    themeDescription,
+    companies,
+    keyDrivers:    normalizeStringArray(value["keyDrivers"]),
+    headwinds:     normalizeStringArray(value["headwinds"]),
+    relatedThemes: normalizeStringArray(value["relatedThemes"]),
+    queryTimeMs,
+  };
+}
+```
+
+### Empty fallback
+
+```ts
+function emptyThemeResult(theme: string, queryTimeMs: number): ThemeResult {
+  return {
+    themeName: theme,
+    themeDescription: "",
+    companies: [],
+    keyDrivers: [],
+    headwinds: [],
+    relatedThemes: [],
+    queryTimeMs,
+  };
+}
+```
+
+### Export signature
+
+```ts
+export async function exploreTheme(theme: string): Promise<ThemeResult>
+// never throws; returns emptyThemeResult on any failure
+```
+
+### Flow
+
+```
+1. Record t0 = Date.now()
+2. Build instructions string
+3. exa.research.create({ instructions, outputSchema: THEME_OUTPUT_SCHEMA })
+4. exa.research.pollUntilFinished(researchId)
+5. If status !== "completed" → return emptyThemeResult
+6. Extract result.output.parsed
+7. normalizeThemeResult(parsed, Date.now() - t0) ?? emptyThemeResult
+```
+
+The `result.output.grounding` field (if present in the SDK version) provides citation
+metadata. Access it as `(result as { output: { grounding?: unknown } }).output.grounding`
+and log it at debug level — do NOT expose it in the API response for the MVP.
+
+---
+
+## PART 3 — API Route (`src/app/api/themes/route.ts`)
+
+```ts
+export async function POST(request: NextRequest): Promise<NextResponse<ThemeApiResponse>> {
+  // 1. Parse body
+  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+  const theme = typeof body.theme === "string" ? body.theme.trim() : "";
+
+  // 2. Validate
+  if (theme.length === 0) {
+    return NextResponse.json({ ok: false, error: "theme is required" }, { status: 400 });
+  }
+  if (theme.length > 500) {
+    return NextResponse.json({ ok: false, error: "theme must be under 500 characters" }, { status: 400 });
+  }
+
+  // 3. Call agent
+  try {
+    const result = await exploreTheme(theme);
+    if (result.companies.length === 0 && result.themeDescription.length === 0) {
+      return NextResponse.json({ ok: false, error: "No data found for this theme" }, { status: 422 });
+    }
+    return NextResponse.json({ ok: true, result });
+  } catch (error) {
+    console.error("[themes] route error", { theme, error });
+    return NextResponse.json({ ok: false, error: "Theme service unavailable" }, { status: 500 });
+  }
+}
+```
+
+Note: `exploreTheme` never throws (returns empty result on failure), so the outer
+try/catch is a belt-and-suspenders guard for unexpected errors only.
+
+---
+
+## PART 4 — ThemePanel Component (`src/components/ThemePanel.tsx`)
+
+### Props
+
+```ts
+type ThemePanelProps = {
+  readonly onCompanySelect: (companyName: string) => void;
+};
+```
+
+### State
+
+```ts
+const [themeQuery, setThemeQuery] = useState("");
+const [result, setResult]         = useState<ThemeResult | null>(null);
+const [isLoading, setIsLoading]   = useState(false);
+const [error, setError]           = useState<string | null>(null);
+```
+
+### Structure
+
+```
+ThemePanel
+  ├── Input row
+  │     ├── <input> placeholder="Describe an investment theme..."
+  │     └── <button> "Explore" (disabled while loading)
+  ├── Loading state (isLoading)
+  │     └── spinner + "Exploring theme with Exa Deep — this takes 5–15 seconds"
+  ├── Error state
+  │     └── rose banner with error message
+  └── Results (result !== null)
+        ├── Theme header
+        │     ├── themeName (large heading)
+        │     └── themeDescription (muted paragraph)
+        ├── Companies list (sorted by exposureScore desc)
+        │     └── per company:
+        │           ├── companyName (clickable button → onCompanySelect)
+        │           ├── ticker badge (if not null)
+        │           ├── exposure bar (width = exposureScore%, colored by tier)
+        │           ├── score label (e.g. "82 / 100")
+        │           └── rationale (muted text)
+        ├── Key drivers section
+        │     └── chips or bullet list
+        ├── Headwinds section
+        │     └── chips or bullet list (rose-tinted)
+        └── Related themes section
+              └── clickable chips → re-run explore with that theme
+```
+
+### Exposure bar coloring
+
+```ts
+function exposureTone(score: number): string {
+  if (score >= 80) return "bg-emerald-400";
+  if (score >= 60) return "bg-amber-400";
+  return "bg-zinc-500";
+}
+```
+
+### Company click
+
+```ts
+<button onClick={() => onCompanySelect(company.companyName)}>
+  {company.companyName}
+</button>
+```
+
+No routing change — parent (`page.tsx`) handles the tab switch and analysis trigger.
+
+### Related theme click
+
+```ts
+<button onClick={() => { setThemeQuery(theme); void handleExplore(theme); }}>
+  {theme}
+</button>
+```
+
+Updates the input field and re-runs exploration in a single action.
+
+### Loading message
+
+Use a 3-stage cycling message (not timing-dependent, just aesthetic):
+- Stage 0: "Researching companies with exposure to this theme..."
+- Stage 1: "Scoring exposure and gathering rationale..."
+- Stage 2: "Assembling theme intelligence..."
+
+Cycle via `setInterval(3000)` while `isLoading`.
+
+---
+
+## PART 5 — Page Integration (`src/app/page.tsx`)
+
+### New state
+
+```ts
+type ActiveTab = "company" | "themes";
+const [activeTab, setActiveTab] = useState<ActiveTab>("company");
+```
+
+### Tab navigation (added above the main content grid)
+
+Minimal tab strip:
+```tsx
+<div className="flex gap-1 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-1 w-fit">
+  <button
+    className={activeTab === "company" ? "... active styles ..." : "... inactive styles ..."}
+    onClick={() => setActiveTab("company")}
+  >
+    Company
+  </button>
+  <button
+    className={activeTab === "themes" ? "..." : "..."}
+    onClick={() => setActiveTab("themes")}
+  >
+    Themes
+  </button>
+</div>
+```
+
+Active tab: `bg-zinc-800 text-zinc-100 rounded-xl`
+Inactive tab: `text-zinc-500 hover:text-zinc-300`
+
+### Content switching
+
+```tsx
+{activeTab === "company" ? (
+  // existing hero/report area — UNCHANGED
+  <section className="...">...</section>
+) : (
+  <ThemePanel onCompanySelect={handleThemeCompanySelect} />
+)}
+```
+
+The existing `section className="grid gap-8 ..."` (report + sidebar) remains inside
+`activeTab === "company"` — sidebar (MonitorList, ActiveSnapshotPanel) is company-tab-only
+because it shows company-specific data.
+
+### handleThemeCompanySelect
+
+```ts
+const handleThemeCompanySelect = (companyName: string): void => {
+  setActiveTab("company");
+  setQuery(companyName);
+  setError(null);
+  void runAnalysis(companyName);
+};
+```
+
+This is the only new function needed. The rest of `runAnalysis`, `handleSearch`,
+`handleSelect` etc. are untouched.
+
+### Tab persistence note
+
+Active tab is not persisted to localStorage for the MVP. Refreshing returns to "Company".
+
+---
+
+## Error Handling Summary
+
+| Location | Error | Response |
+|---|---|---|
+| `exploreTheme` (no API key) | logs, returns `emptyThemeResult` | UI shows "Theme service unavailable" |
+| `exploreTheme` (network/poll fail) | logs, returns `emptyThemeResult` | UI shows "Theme service unavailable" |
+| `/api/themes` (empty theme) | 400 | `{ ok: false, error: "theme is required" }` |
+| `/api/themes` (too long) | 400 | `{ ok: false, error: "theme must be under 500 characters" }` |
+| `/api/themes` (zero companies) | 422 | `{ ok: false, error: "No data found for this theme" }` |
+| `ThemePanel` (fetch error) | local state | rose banner with message |
+| `ThemePanel` (0 companies in result) | local state | "No companies found for this theme" |
+
+---
+
+## Test Cases
+
+| Theme | Expect (min) |
+|---|---|
+| "EV charging infrastructure" | ChargePoint (CHPT), EVgo (EVGO), Blink (BLNK), Tesla (TSLA) |
+| "BNPL payments" | Affirm (AFRM), Klarna, PayPal (PYPL), Block (SQ) |
+| "AI inference chips" | NVIDIA (NVDA), AMD, Cerebras, Groq |
+| "Dark stores urban logistics" | Gorillas, Getir, GoPuff, DoorDash (DASH), Instacart (CART) |
+
+**Verification steps after implementation**:
+1. `npx tsc --noEmit` — zero errors
+2. `npm run lint` — zero warnings
+3. `curl -X POST http://localhost:3000/api/themes -H "Content-Type: application/json" -d '{"theme":"EV charging infrastructure"}'`
+   — response has `ok: true`, `result.companies` array with 3+ entries, each with `exposureScore > 0`
+4. Browser: open Themes tab, type "BNPL payments", click Explore
+   — loading spinner appears, results render with exposure bars
+5. Browser: click a company in theme results
+   — tab switches to Company, search bar populates, analysis begins
+6. Browser: click a related theme chip
+   — input updates, new exploration runs
+7. Edge case: type a nonsense theme like "xkcd9q8w"
+   — should show "No data found for this theme" or "Theme service unavailable" gracefully
+
+---
+
+## Line Budget
+
+| File | Estimated lines |
+|---|---|
+| `types.ts` (additions only) | +25 |
+| `theme-agent.ts` | ~160 |
+| `api/themes/route.ts` | ~45 |
+| `ThemePanel.tsx` | ~220 |
+| `page.tsx` (modifications) | +40 net |
+
+All within caps. ThemePanel is the largest new component but well under 800.
+
+---
+
+## Implementation Order
+
+1. Add `ThemeCompany`, `ThemeResult`, `ThemeApiResponse` to `types.ts`
+2. Create `theme-agent.ts` — verify exa-js API, implement schema + flow
+3. Create `api/themes/route.ts`
+4. Create `ThemePanel.tsx`
+5. Update `page.tsx` — tab state + ThemePanel mount + `handleThemeCompanySelect`
+6. `npx tsc --noEmit` — must pass
+7. `npm run lint` — must pass
+8. Test all 4 theme cases via curl
+9. Browser test: full click-through flow
+
+---
+
 # Phase 7: Orchestrator Agent — Plan
 
 ## Status

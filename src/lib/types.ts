@@ -810,6 +810,29 @@ export type ExaDeepData = {
   readonly recentNews: string;
 };
 
+export type ThemeCompany = {
+  readonly companyName: string;
+  readonly ticker: string | null;
+  readonly exposureScore: number;
+  readonly rationale: string;
+};
+
+export type ThemeResult = {
+  readonly themeName: string;
+  readonly themeDescription: string;
+  readonly companies: readonly ThemeCompany[];
+  readonly keyDrivers: readonly string[];
+  readonly headwinds: readonly string[];
+  readonly relatedThemes: readonly string[];
+  readonly queryTimeMs: number;
+};
+
+export type ThemeApiResponse = {
+  readonly ok: boolean;
+  readonly result?: ThemeResult;
+  readonly error?: string;
+};
+
 export type ClaudeFallbackResult = {
   readonly narrative: string;
   readonly extractedMetrics: readonly FinancialMetric[];
