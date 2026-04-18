@@ -1,390 +1,6 @@
-# Exa Deep Research — Private-Company Enrichment Plan
+# Phase 5: Validation Agent Plan
 
-## Context
-
-The current waterfall skips to Claude fallback for private companies (no Finnhub ticker, no FMP data). This plan:
-
-1. Decouples FMP from Finnhub — FMP resolves its own symbol via FMP search, not Finnhub's symbol result.
-2. Inserts Exa Deep Research as a dedicated private-company tier, before Claude fallback.
-
-`exa-js` is already in `package.json`. No install step needed.
-
-**Finnhub's role:** quote, news, insider transactions, analyst recommendations — signals that FMP does not provide. Finnhub is NOT the symbol authority for FMP.
-
-**FMP's role:** valuation multiples, enterprise value, forward estimates, price-target consensus, peers — resolved independently via FMP's own `/stable/search` endpoint.
-
----
-
-## Revised Waterfall Order
-
-```
-Current:
-  1. Finnhub + GLEIF (parallel)
-  2. [await Finnhub] → decide CH skip
-  3. SEC + CH + GLEIF (parallel)
-  4. FMP (sequential, depends on Finnhub symbol)   ← PROBLEM
-  5. Claude fallback
-
-Revised:
-  1. Finnhub + FMP + GLEIF (all parallel)          ← FMP independent
-  2. [await Finnhub] → decide CH skip
-  3. SEC + CH + GLEIF + FMP (parallel — FMP already in flight)
-  4. Exa Deep (fires only when isLikelyPrivate)     ← NEW
-  5. Claude fallback (unchanged condition)
-```
-
----
-
-## Part A — Foundation: Types + Datasource Client
-
-### Files Changed
-
-| File | Change |
-|------|--------|
-| `src/lib/types.ts` | Add `"exa-deep"` to `DataSource`; add `ExaDeepData` type; add `exaDeep` field to `WaterfallResult` |
-| `src/lib/datasources/exa-deep.ts` | **NEW** — Exa Deep Research API client |
-
----
-
-### A1 — `src/lib/types.ts`
-
-**Change 1: `DataSource` union** (lines 1–7, after `"gleif"`)
-
-```typescript
-export type DataSource =
-  | "finnhub"
-  | "fmp"
-  | "sec-edgar"
-  | "companies-house"
-  | "gleif"
-  | "exa-deep"          // ← NEW
-  | "claude-fallback";
-```
-
-**Change 2: `ExaDeepData` type** — insert after `GleifData` (~line 738), before `ClaudeFallbackResult`
-
-```typescript
-export type ExaDeepData = {
-  readonly companyName: string;
-  readonly overview: string;
-  readonly estimatedRevenue: string | null;
-  readonly fundingTotal: string | null;
-  readonly lastValuation: string | null;
-  readonly foundedYear: string | null;
-  readonly headquarters: string | null;
-  readonly keyInvestors: readonly string[];
-  readonly competitors: readonly string[];
-  readonly recentNews: string;
-};
-```
-
-**Change 3: `WaterfallResult` — add `exaDeep` field** (~lines 751–760, after `gleif`, before `claudeFallback`)
-
-```typescript
-export type WaterfallResult = {
-  readonly query: string;
-  readonly finnhub: DataSourceResult<FinnhubData> | null;
-  readonly fmp: DataSourceResult<FmpData> | null;
-  readonly secEdgar: DataSourceResult<SecEdgarData> | null;
-  readonly companiesHouse: DataSourceResult<CompaniesHouseData> | null;
-  readonly gleif: DataSourceResult<GleifData> | null;
-  readonly exaDeep: DataSourceResult<ExaDeepData> | null;   // ← NEW
-  readonly claudeFallback: DataSourceResult<ClaudeFallbackResult> | null;
-  readonly activeSources: readonly DataSource[];
-};
-```
-
----
-
-### A2 — `src/lib/datasources/exa-deep.ts` (NEW FILE)
-
-Exported function signature:
-
-```typescript
-export async function fetchExaDeepData(
-  query: string,
-): Promise<ApiResult<ExaDeepData>>
-```
-
-Implementation notes (plan only — no code written):
-
-1. Instantiate `new Exa(process.env.EXA_API_KEY)` at module scope; throw at construction if key absent (consistent with other clients).
-2. Call `exa.research(...)` with query `"${query} company overview funding valuation investors competitors"` and a `contents: { schema: { ... } }` option whose schema matches the 10 fields of `ExaDeepData`.
-3. Extract `output` from the top-level research response object (the single result returned by the SDK).
-4. Validate: `output.content` must be a non-null object with non-empty `companyName` and `overview`. On failure → `{ success: false, error: "exa output missing required fields" }`.
-5. Return `{ success: true, data: output.content as ExaDeepData }`.
-6. Entire body in `try/catch`. On any error: `console.error("[exa-deep] fetch failed", { query, error })` then `{ success: false, error: String(err) }`.
-7. Never throw — always return `ApiResult<ExaDeepData>`.
-
-**Required env var:** `EXA_API_KEY` in `.env.local` before Part B is tested.
-
----
-
-## Part B — Integration: FMP Decoupling + Waterfall + Confidence
-
-### Files Changed
-
-| File | Change |
-|------|--------|
-| `src/lib/datasources/fmp.ts` | Add `searchFmpSymbol(query)`; change `fetchFmpData` to accept query string, resolve symbol internally |
-| `src/lib/agents/market-data-agent.ts` | Launch FMP in parallel with Finnhub/GLEIF; add `isLikelyPrivate`; wire Exa; update `buildActiveSources`; update `anyData` |
-| `src/lib/confidence.ts` | Handle `"exa-deep"` in `buildIdentityComponent`, `buildFinancialsComponent`, `buildFreshnessComponent` |
-
----
-
-### B1 — `src/lib/datasources/fmp.ts`
-
-**Change 1: Add `searchFmpSymbol` helper** — insert before `fetchFmpData` (~line 307)
-
-```typescript
-async function searchFmpSymbol(query: string): Promise<string | null>
-```
-
-Implementation notes:
-- Calls `GET /stable/search?query=<query>&limit=5&apikey=...`
-- Picks the first result where `exchangeShortName` matches a major exchange (`NYSE`, `NASDAQ`, `LSE`, `XETRA`, `SIX`, or empty). Falls back to first result of any exchange.
-- Returns the `symbol` string, or `null` if response is empty or malformed.
-- Wrapped in try/catch — on error logs `[fmp] symbol search failed` and returns `null`.
-
-**Change 2: Change `fetchFmpData` signature** (line 307)
-
-```typescript
-// Before:
-export async function fetchFmpData(symbol: string): Promise<ApiResult<FmpData>>
-
-// After:
-export async function fetchFmpData(query: string): Promise<ApiResult<FmpData>>
-```
-
-At the top of the function body, replace the existing `upperSymbol` derivation with:
-
-```typescript
-const resolved = await searchFmpSymbol(query);
-
-if (resolved === null || resolved.trim().length === 0) {
-  return { success: false, error: `FMP: no symbol found for "${query}"` };
-}
-
-const upperSymbol = resolved.trim().toUpperCase();
-```
-
-Everything below `upperSymbol` (the 5-way `Promise.all` and normalization) is **unchanged**.
-
----
-
-### B2 — `src/lib/agents/market-data-agent.ts`
-
-**Change 1: Add `ExaDeepData` to type imports** (~line 1–7)
-
-```typescript
-import type {
-  DataSource,
-  DataSourceResult,
-  ExaDeepData,        // ← ADD
-  FinancialMetric,
-  WaterfallInput,
-  WaterfallResult,
-} from "@/lib/types";
-```
-
-**Change 2: Add `fetchExaDeepData` import** (after existing datasource imports, ~line 9)
-
-```typescript
-import { fetchExaDeepData } from "@/lib/datasources/exa-deep";
-```
-
-**Change 3: Add `isLikelyPrivate` predicate** — insert after `shouldSkipCompaniesHouseLookup` (~line 97), before `buildActiveSources`
-
-```typescript
-function isLikelyPrivate(
-  finnhubResult: Awaited<ReturnType<typeof fetchFinnhubData>>,
-  fmpResult: DataSourceResult<FmpData> | null,
-): boolean {
-  const noFinnhubTicker =
-    !finnhubResult.success ||
-    finnhubResult.data.symbol.trim().length === 0;
-  const noFmpData = fmpResult === null;
-  return noFinnhubTicker && noFmpData;
-}
-```
-
-`fmpResult` is the wrapped `DataSourceResult<FmpData>` — `null` when `wrapSource` received `{ success: false }`.
-
-**Change 4: `buildActiveSources`** — add `exaDeep` branch after `gleif`, before `claudeFallback` (~lines 99–108)
-
-```typescript
-function buildActiveSources(result: WaterfallResult): readonly DataSource[] {
-  return [
-    ...(result.finnhub !== null ? (["finnhub"] as const) : []),
-    ...(result.fmp !== null ? (["fmp"] as const) : []),
-    ...(result.secEdgar !== null ? (["sec-edgar"] as const) : []),
-    ...(result.companiesHouse !== null ? (["companies-house"] as const) : []),
-    ...(result.gleif !== null ? (["gleif"] as const) : []),
-    ...(result.exaDeep !== null ? (["exa-deep"] as const) : []),    // ← ADD
-    ...(result.claudeFallback !== null ? (["claude-fallback"] as const) : []),
-  ];
-}
-```
-
-**Change 5: Rewrite `runWaterfall` fetch sequencing** (~lines 110–204)
-
-Current sequence (problematic):
-```
-finnhubPromise + gleifPromise  →  await finnhub  →  Promise.all(edgar, ch, gleif)
-                                                  →  await fmp (sequential, depends on finnhub symbol)
-```
-
-Revised sequence:
-
-```typescript
-// Step 1: start all three independent fetches in parallel
-const finnhubPromise = fetchFinnhubData(input.query);
-const fmpPromise = fetchFmpData(input.query);      // ← NOW PARALLEL, not after finnhub
-const gleifPromise = fetchGleifData(input.query);
-
-// Step 2: await finnhub only (needed for CH skip decision)
-const finnhubResult = await finnhubPromise;
-const skipCompaniesHouse = shouldSkipCompaniesHouseLookup(finnhubResult);
-const companiesHouseResultPromise = skipCompaniesHouse
-  ? Promise.resolve(null)
-  : fetchCompaniesHouseData(input.query);
-
-// Step 3: resolve remaining parallel fetches (FMP now included)
-const [edgarResult, chResult, gleifResult, fmpResult] = await Promise.all([
-  fetchSecEdgarData(input.query, { tickerHint: ... }),    // tickerHint logic unchanged
-  companiesHouseResultPromise,
-  gleifPromise,
-  fmpPromise,                                             // ← ADDED here
-]);
-
-// Step 4: wrap sources
-const finnhub = wrapSource("finnhub", finnhubResult);
-const fmp = wrapSource("fmp", fmpResult);                // ← no longer conditional on finnhub
-const secEdgar = wrapSource("sec-edgar", edgarResult);
-const companiesHouse = chResult === null ? null : wrapSource("companies-house", chResult);
-const gleif = wrapSource("gleif", gleifResult);
-```
-
-> `tickerHint` for SEC EDGAR: keep the existing logic — `finnhubResult.success && finnhubResult.data.symbol.trim().length > 0 ? finnhubResult.data.symbol : undefined`. Finnhub symbol is still a useful hint for SEC even though FMP no longer depends on it.
-
-**Change 6: Add Exa Deep fetch** — after wrapping all sources, before `anyData` check
-
-```typescript
-// Step 5: Exa Deep (private companies only)
-const exaDeep: DataSourceResult<ExaDeepData> | null =
-  isLikelyPrivate(finnhubResult, fmp)
-    ? wrapSource("exa-deep", await fetchExaDeepData(input.query))
-    : null;
-```
-
-**Change 7: Update `anyData` to include `exaDeep`**
-
-```typescript
-const anyData =
-  finnhub !== null ||
-  fmp !== null ||
-  secEdgar !== null ||
-  companiesHouse !== null ||
-  gleif !== null ||
-  exaDeep !== null;     // ← ADD
-```
-
-**Change 8: Add `exaDeep` to `baseResult`**
-
-```typescript
-const baseResult: WaterfallResult = {
-  query: input.query,
-  finnhub,
-  fmp,
-  secEdgar,
-  companiesHouse,
-  gleif,
-  exaDeep,           // ← ADD
-  claudeFallback,
-  activeSources: [],
-};
-```
-
-`shouldSupplementWithClaude` condition and the Claude block are **not touched**.
-
----
-
-### B3 — `src/lib/confidence.ts`
-
-`buildStreetComponent` is unchanged (Exa provides no analyst or market signals). The other three builders each get an Exa branch inserted **before** the final `return { score: 0 }` fall-through.
-
-**`buildIdentityComponent`** — after the `result.claudeFallback !== null` branch (~line 133), before `return { score: 0 }`
-
-```typescript
-if (result.exaDeep !== null) {
-  return {
-    key: "identity",
-    label: "Entity Match",
-    score: 14,
-    rationale:
-      "Entity identified via Exa Deep Research; no primary registry or market match.",
-  };
-}
-```
-
-Score 14 aligns with the existing single-source Finnhub-only tier.
-
-**`buildFinancialsComponent`** — after the `result.claudeFallback` branch (~line 209), before `return { score: 0 }`
-
-```typescript
-if (result.exaDeep !== null) {
-  const hasRevenue = result.exaDeep.data.estimatedRevenue !== null;
-  const hasCapital =
-    result.exaDeep.data.fundingTotal !== null ||
-    result.exaDeep.data.lastValuation !== null;
-  const score = hasRevenue && hasCapital ? 12 : hasRevenue || hasCapital ? 8 : 5;
-  return {
-    key: "financials",
-    label: "Financial Depth",
-    score,
-    rationale:
-      "Financial figures sourced from Exa Deep Research synthesis; not primary filings.",
-  };
-}
-```
-
-**`buildFreshnessComponent`** — after the `result.claudeFallback !== null` branch (~line 334), before `return { score: 0 }`
-
-```typescript
-if (result.exaDeep !== null) {
-  return {
-    key: "freshness",
-    label: "Freshness",
-    score: 6,
-    rationale: "Exa Deep Research returned structured, grounded results.",
-  };
-}
-```
-
----
-
-## Test Cases
-
-| Company | Finnhub | FMP own search | `isLikelyPrivate` | Exa fires | Expected tier |
-|---------|---------|---------------|-------------------|-----------|---------------|
-| Apple | AAPL ✓ | AAPL ✓ | false | No | ★★★ HIGH (SEC) |
-| Microsoft | MSFT ✓ | MSFT ✓ | false | No | ★★★ HIGH (SEC) |
-| Klarna | KLAR ✓ (NYSE 2025) | KLAR ✓ | false | No | ★★☆ MEDIUM |
-| Deutsche Bank | DB ✓ | DB ✓ | false | No | ★★☆ MEDIUM (GLEIF + market) |
-| SpaceX | — | — | true | Yes | ★★☆ MEDIUM |
-
----
-
-## Out of Scope
-
-- Exa result caching (the existing analysis cache covers the full report)
-- Streaming Exa output
-- Using Exa for public companies as a supplement
-- Parsing `recentNews` into structured `NewsHighlight[]` — single `NewsHighlight` entry for now
-- Any changes to `src/lib/analyzer.ts` or `src/app/api/analyze/route.ts` — `analyzeCompany` public API is unchanged
----
-
-## Phase 4 Review — Complete
+## Phase 5 Review — Complete
 
 **Status:** implemented, tsc + lint clean, ready for manual browser testing. Do not commit yet.
 
@@ -392,18 +8,9 @@ if (result.exaDeep !== null) {
 
 | File | Change |
 |------|--------|
-| `src/lib/types.ts` | `”exa-deep”` in `DataSource`; `ExaDeepData` (10 fields); `exaDeep` in `WaterfallResult` |
-| `src/lib/datasources/exa-deep.ts` | `fetchExaDeepData(query)` — uses `exa.research.create()` + `pollUntilFinished()`; accesses `result.output.parsed`; normalizes to `ExaDeepData` |
-| `src/lib/datasources/fmp.ts` | `searchFmpSymbol(query)` via `/stable/search`; `fetchFmpData` now takes company name, resolves symbol internally |
-| `src/lib/agents/market-data-agent.ts` | FMP launched in parallel with Finnhub/GLEIF; `isLikelyPrivate(finnhubResult, fmpResult: DataSourceResult<FmpData> \| null)`; Exa wired after parallel block; `exaDeep` in `anyData` and `baseResult`; `buildActiveSources` updated |
-| `src/lib/confidence.ts` | `buildIdentityComponent`: exaDeep → score 14; `buildFinancialsComponent`: exaDeep → 5/8/12 based on field presence; `buildFreshnessComponent`: exaDeep → flat score 6; `buildStreetComponent`: unchanged |
-| `src/components/DataSourceAttribution.tsx` | `”exa-deep”` label entry |
-| `src/components/EntityResolutionPanel.tsx` | `”exa-deep”` label entry |
-| `src/components/FinancialTable.tsx` | `”exa-deep”` label entry |
-
-### Deviations from plan
-
-- **`exa-deep.ts` API method corrected:** the SDK exposes `exa.research.create()` + `exa.research.pollUntilFinished()`, not `exa.search()`. Structured output is in `result.output.parsed` (not `output.content`). The plan's step 5 (`output.content as ExaDeepData`) was adjusted to use `output.parsed` with a type assertion, then normalised through `normalizeExaDeepData`.
+| `src/lib/types.ts` | 6 new types (`ValidationSeverity`, `ValidationCoverageLabel`, `ValidationTension`, `ValidationCrossCheck`, `ValidationGap`, `ValidationReport`); `validationReport` field on `AnalysisReport`; `placeholderValidationReport` const; added to `placeholderAnalysisReport` |
+| `src/lib/agents/validation-agent.ts` | `validateWaterfall(result)` — 7 cross-checks, 5 gap detectors, coverage label classifier, scoring formula |
+| `src/lib/analyzer.ts` | Import + call `validateWaterfall` after `runWaterfall`; `validationReport` in return object |
 
 ### Verification
 
@@ -411,13 +18,442 @@ if (result.exaDeep !== null) {
 |-------|--------|
 | `npx tsc --noEmit` | ✓ zero errors |
 | `npm run lint` | ✓ zero warnings |
-| `analyzer.ts` unchanged | ✓ no exa-deep references |
-| `api/analyze/route.ts` unchanged | ✓ no exa-deep references |
-| `buildStreetComponent` unchanged | ✓ no exaDeep branch |
+| All 7 cross-checks present | ✓ entity name, revenue, market cap, earnings direction, company status, filing freshness, ticker identifier |
+| All 5 gaps present | ✓ no SEC XBRL for US-listed, no CH for UK, no analyst coverage >$5B, no news 30d, Exa Deep without funding |
+| Coverage label 5 values | ✓ Strong Public, Registry-led, Ambiguous Entity, Limited Private, Thin |
+| Scoring formula | ✓ start 100, -20 high tension, -10 medium tension, -15 high gap, -5 medium gap, floor 0 |
+| Deviations from plan | None — implementation matches plan exactly |
 
 ### Manual testing required
 
-1. SpaceX / Stripe — trigger `isLikelyPrivate`, confirm Exa fires (requires `EXA_API_KEY` in `.env.local`)
-2. Apple / Microsoft — confirm Exa does NOT fire
-3. Klarna (`KLAR`) — confirm Exa does NOT fire
-4. Deutsche Bank — confirm Exa does NOT fire, GLEIF + Finnhub path unchanged
+1. Apple (AAPL) — expect `coverageLabel: "Strong Public"`, `dataQualityScore` near 100, possible "No news" gap
+2. Deutsche Bank — expect `coverageLabel: "Registry-led"` or `"Strong Public"` depending on FMP/SEC availability
+3. SpaceX (Exa Deep path) — expect `coverageLabel: "Limited Private"`, Exa funding gap if data missing
+4. Any UK company via Companies House — expect company status check to run
+
+---
+
+## Context
+
+The waterfall now has 7 sources: Finnhub, FMP, SEC EDGAR, Companies House, GLEIF, Exa Deep, Claude fallback. Each produces independent data. Currently there is no layer that cross-checks facts between sources, flags entity identity divergence, or measures per-run data quality with a numeric score.
+
+This phase adds a deterministic, pure-logic validation layer. No Claude calls. No external fetches. Input: `WaterfallResult`. Output: `ValidationReport`.
+
+---
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `src/lib/types.ts` | 6 new types + `validationReport` field on `AnalysisReport` + placeholder default |
+| `src/lib/agents/validation-agent.ts` | **NEW** — exports `validateWaterfall` |
+| `src/lib/analyzer.ts` | Import + call `validateWaterfall`; wire `validationReport` into return object |
+
+---
+
+## Part A — Types (`src/lib/types.ts`)
+
+### A1 — New types (insert after `GleifData`, before `ExaDeepData`, ~line 740)
+
+```typescript
+export type ValidationSeverity = "high" | "medium" | "low";
+
+export type ValidationCoverageLabel =
+  | "Strong Public"
+  | "Registry-led"
+  | "Ambiguous Entity"
+  | "Limited Private"
+  | "Thin";
+
+export type ValidationTension = {
+  readonly check: string;
+  readonly detail: string;
+  readonly sources: readonly DataSource[];
+  readonly severity: ValidationSeverity;
+};
+
+export type ValidationCrossCheck = {
+  readonly check: string;
+  readonly passed: boolean;
+  readonly detail: string;
+  readonly sources: readonly DataSource[];
+};
+
+export type ValidationGap = {
+  readonly gap: string;
+  readonly detail: string;
+  readonly severity: ValidationSeverity;
+};
+
+export type ValidationReport = {
+  readonly coverageLabel: ValidationCoverageLabel;
+  readonly dataQualityScore: number;
+  readonly tensions: readonly ValidationTension[];
+  readonly gaps: readonly ValidationGap[];
+  readonly crossChecks: readonly ValidationCrossCheck[];
+};
+```
+
+### A2 — Add `validationReport` to `AnalysisReport` (~line 354, after `sectionAudit`)
+
+```typescript
+export type AnalysisReport = {
+  // ... existing fields unchanged ...
+  readonly sectionAudit: readonly SectionAuditItem[];
+  readonly validationReport: ValidationReport;     // ← NEW
+  readonly newsHighlights: readonly NewsHighlight[];
+  // ...
+};
+```
+
+### A3 — Add placeholder const (after `placeholderConfidence`, ~line 843)
+
+```typescript
+export const placeholderValidationReport: ValidationReport = {
+  coverageLabel: "Thin",
+  dataQualityScore: 0,
+  tensions: [],
+  gaps: [],
+  crossChecks: [],
+};
+```
+
+### A4 — Add to `placeholderAnalysisReport` (~line 930, after `sectionAudit: []`)
+
+```typescript
+validationReport: placeholderValidationReport,
+```
+
+---
+
+## Part B — `src/lib/agents/validation-agent.ts` (NEW FILE)
+
+### Imports
+
+```typescript
+import type {
+  DataSource,
+  ValidationCoverageLabel,
+  ValidationCrossCheck,
+  ValidationGap,
+  ValidationReport,
+  ValidationSeverity,
+  ValidationTension,
+  WaterfallResult,
+} from "@/lib/types";
+import {
+  extractLatestFact,
+  REVENUE_CONCEPTS,
+} from "@/lib/datasources/sec-edgar";
+```
+
+### B1 — `buildCoverageLabel(result: WaterfallResult): ValidationCoverageLabel`
+
+Classification logic (evaluated in priority order):
+
+| Condition | Label |
+|-----------|-------|
+| `result.finnhub?.data.isAmbiguous === true` | `"Ambiguous Entity"` |
+| SEC + FMP + Finnhub all non-null | `"Strong Public"` |
+| `result.exaDeep !== null` AND `result.finnhub === null` AND `result.fmp === null` AND `result.secEdgar === null` | `"Limited Private"` |
+| `result.claudeFallback !== null` AND all structured sources null | `"Thin"` |
+| `result.companiesHouse !== null` OR `result.gleif !== null` | `"Registry-led"` |
+| fallthrough | `"Thin"` |
+
+Note: "Ambiguous Entity" check precedes all others. A result with `isAmbiguous` is labeled ambiguous even if data is rich.
+
+### B2 — `normalizeCompanyName(name: string): string` (local private helper)
+
+```typescript
+// Strip common legal suffixes, uppercase, strip non-alphanumeric, trim.
+// e.g. "Apple Inc." → "APPLE", "Deutsche Bank AG" → "DEUTSCHE BANK"
+```
+
+Implementation:
+1. `toUpperCase()`
+2. Remove trailing legal markers: `\b(INC\.?|CORP\.?|LLC\.?|LTD\.?|PLC\.?|AG|SA|NV|BV|GMBH|SE|KG|AB|ASA|OYJ)\b`
+3. Replace non-alphanumeric with space
+4. Trim and collapse whitespace
+
+### B3 — `runCrossChecks(result: WaterfallResult): readonly ValidationCrossCheck[]`
+
+Run all 7 checks in sequence. Each check produces exactly one `ValidationCrossCheck`. Skip (omit from output) when prerequisite data is null for both sides.
+
+---
+
+**Check 1: Entity name consistency**
+
+- Sources involved: any two of {Finnhub, SEC EDGAR, Companies House, GLEIF} where both names are non-null.
+- Collect available names:
+  - `finnhubName = result.finnhub?.data.companyName ?? null`
+  - `secName = result.secEdgar?.data.companyInfo?.name ?? result.secEdgar?.data.xbrlFacts?.entityName ?? null`
+  - `chName = result.companiesHouse?.data.company?.company_name ?? null`
+  - `gleifName = result.gleif?.data.record?.attributes.entity.legalName.name ?? null`
+- Normalize each non-null name. Extract first token of normalized name.
+- Check: collect all normalized first tokens. Do the non-null names agree on the first token?
+- Pass if 0 or 1 names are present (nothing to compare), or if all first tokens agree.
+- Fail if first tokens diverge (e.g. "APPLE" vs "METASPACEX").
+- Sources: all sources that contributed a name.
+- Detail on pass: `"Entity names are consistent across ${n} sources."`
+- Detail on fail: `"Name mismatch: ${list of source:name pairs}."`
+
+---
+
+**Check 2: Revenue — FMP forward estimate vs SEC XBRL trailing**
+
+- Skip if `result.secEdgar === null || result.fmp === null`.
+- Skip if `result.secEdgar.data.xbrlFacts === null`.
+- `secRevenue = extractLatestFact(result.secEdgar.data.xbrlFacts, REVENUE_CONCEPTS)`
+- `fmpRevenue = result.fmp.data.analystEstimates[0]?.estimatedRevenueAvg ?? null`
+- Skip if either is null or zero.
+- `divergencePct = Math.abs(secRevenue - fmpRevenue) / Math.max(Math.abs(secRevenue), Math.abs(fmpRevenue)) * 100`
+- Pass if `divergencePct <= 5`.
+- Fail if `divergencePct > 5`.
+- Detail: `"SEC trailing revenue ${formatRevenue(secRevenue)} vs FMP forward estimate ${formatRevenue(fmpRevenue)} (${divergencePct.toFixed(1)}% gap; period mismatch expected)."`
+- Sources: `["sec-edgar", "fmp"]`
+
+`formatRevenue` helper: `(n: number) => n >= 1e9 ? `${(n/1e9).toFixed(1)}B` : `${(n/1e6).toFixed(0)}M``
+
+---
+
+**Check 3: Market cap — Finnhub vs FMP within 2%**
+
+- Skip if `result.finnhub === null || result.fmp === null`.
+- `finnhubMcap = result.finnhub.data.basicFinancials?.metric.marketCapitalization ?? null` — **in USD millions**
+- `fmpMcap = result.fmp.data.enterpriseValues[0]?.marketCapitalization ?? null` — **in absolute USD**
+- Skip if either is null or zero.
+- Normalize to same unit: `fmpMcapM = fmpMcap / 1_000_000`
+- `divergencePct = Math.abs(finnhubMcap - fmpMcapM) / Math.max(finnhubMcap, fmpMcapM) * 100`
+- Pass if `divergencePct <= 2`.
+- Fail if `divergencePct > 2`.
+- Detail: `"Finnhub market cap ${finnhubMcap.toFixed(0)}M vs FMP ${fmpMcapM.toFixed(0)}M (${divergencePct.toFixed(1)}% gap)."`
+- Sources: `["finnhub", "fmp"]`
+
+---
+
+**Check 4: Earnings direction vs consensus**
+
+- Skip if `result.finnhub === null`.
+- `latestEarnings = result.finnhub.data.earnings[0] ?? null`
+- `latestRec = [...result.finnhub.data.recommendations].sort((a, b) => b.period.localeCompare(a.period))[0] ?? null`
+- Skip if either is null.
+- Skip if `latestEarnings.surprisePercent === null`.
+- `consensusBullish = latestRec.strongBuy + latestRec.buy > latestRec.strongSell + latestRec.sell`
+- `earningsBeat = latestEarnings.surprisePercent > 0`
+- Pass if `earningsBeat === consensusBullish` OR if the divergence is mild (`Math.abs(latestEarnings.surprisePercent) < 5`).
+- Fail if a large miss (`< -10%`) coexists with a strongly bullish consensus, or a large beat (`> +10%`) coexists with a bearish consensus.
+- Detail: `"${latestEarnings.period} surprise ${latestEarnings.surprisePercent.toFixed(1)}% vs consensus ${consensusBullish ? 'bullish' : 'bearish'}."`
+- Sources: `["finnhub"]`
+
+---
+
+**Check 5: Company status — active**
+
+- Skip if both `result.companiesHouse === null` AND `result.gleif === null`.
+- For Companies House: `chStatus = result.companiesHouse?.data.company?.company_status ?? null`
+- For GLEIF: `gleifStatus = result.gleif?.data.record?.attributes.registration.status ?? null`
+- Pass if all non-null statuses are active (`chStatus === "active"`, `gleifStatus === "ISSUED"`).
+- Fail if any status is inactive (dissolved, liquidation, LAPSED, RETIRED, MERGED, etc.).
+- Sources involved: those that provided a status.
+- Detail: list each source:status pair.
+
+---
+
+**Check 6: Filing freshness**
+
+- Two sub-checks, always bundled into one `ValidationCrossCheck`:
+
+  *SEC freshness* (skip if `result.secEdgar === null` or `recentFilings` empty):
+  - `latestFiling = result.secEdgar.data.recentFilings[0]`
+  - `daysSinceFiling = (Date.now() - new Date(latestFiling.filingDate).getTime()) / 86_400_000`
+  - Fresh if `daysSinceFiling <= 90`.
+
+  *CH overdue* (skip if `result.companiesHouse === null`):
+  - `overdue = result.companiesHouse.data.profile?.accounts?.next_accounts?.overdue ?? false`
+  - Pass if `!overdue`.
+
+- Overall pass if both sub-checks that ran passed.
+- Detail: summarise SEC days-since-filing and/or CH overdue status.
+- Sources: whichever sub-checks ran.
+
+---
+
+**Check 7: Ticker identifier consistency**
+
+- Skip if `result.secEdgar === null || result.finnhub === null`.
+- `secTickers = result.secEdgar.data.companyInfo?.tickers ?? []`
+- Skip if `secTickers.length === 0`.
+- `finnhubSymbol = result.finnhub.data.symbol.toUpperCase()`
+- `secNormalized = secTickers.map(t => t.toUpperCase())`
+- Pass if `secNormalized.includes(finnhubSymbol)` OR if Finnhub symbol contains a dot (non-US listing — SEC won't list it).
+- Fail otherwise.
+- Sources: `["sec-edgar", "finnhub"]`
+- Detail: `"SEC tickers [${secNormalized.join(', ')}] vs Finnhub symbol ${finnhubSymbol}."`
+
+---
+
+### B4 — `detectTensions(crossChecks: readonly ValidationCrossCheck[]): readonly ValidationTension[]`
+
+Map each failed `ValidationCrossCheck` to a `ValidationTension`:
+
+| Check name | Severity |
+|-----------|----------|
+| Entity name consistency | `"high"` |
+| Revenue — FMP vs SEC | `"medium"` |
+| Market cap — Finnhub vs FMP | `"medium"` |
+| Earnings direction vs consensus | `"low"` |
+| Company status — active | `"high"` |
+| Filing freshness | `"medium"` |
+| Ticker identifier consistency | `"medium"` |
+
+Mapping: `{ check: crossCheck.check, detail: crossCheck.detail, sources: crossCheck.sources, severity }`. Return only failed checks.
+
+### B5 — `detectGaps(result: WaterfallResult): readonly ValidationGap[]`
+
+Run 5 gap detectors. Each adds a `ValidationGap` when the condition is met.
+
+**Gap 1 — No SEC XBRL for US-listed company**
+
+- Condition: Finnhub is non-null AND the symbol contains no dot (no exchange suffix, indicating US listing) AND `result.secEdgar?.data.xbrlFacts === null`.
+- Severity: `"high"`
+- Gap: `"No SEC XBRL for US-listed company"`
+- Detail: `"${symbol} appears to be a US listing but SEC EDGAR returned no structured XBRL facts. Filing-backed financials are unavailable."`
+
+**Gap 2 — No Companies House for UK-registered entity**
+
+- Condition: GLEIF jurisdiction is `"GB"` (or starts with `"GB"`) OR Finnhub symbol ends with `.L` — AND `result.companiesHouse === null`.
+- Severity: `"high"`
+- Gap: `"No Companies House data for UK entity"`
+- Detail: `"Entity appears UK-registered (${reason}) but Companies House lookup returned no results."`
+
+**Gap 3 — No analyst coverage for large-cap**
+
+- Condition: `result.finnhub?.data.basicFinancials?.metric.marketCapitalization ?? 0` > 5000 (USDm) AND `result.finnhub?.data.recommendations.length === 0 || result.finnhub === null`.
+- Severity: `"medium"`
+- Gap: `"No analyst coverage despite market cap >$5B"`
+- Detail: `"Market cap of ${mcap}M exceeds the $5B threshold but no analyst recommendations were found."`
+
+**Gap 4 — No recent news (30-day silence)**
+
+- Condition: `result.finnhub !== null` AND (`result.finnhub.data.news.length === 0` OR the most recent news item's `datetime * 1000 < Date.now() - 30 * 86_400_000`).
+- Severity: `"medium"`
+- Gap: `"No news coverage in the past 30 days"`
+- Detail: `"Finnhub returned no headlines dated within the last 30 days, which limits freshness for monitoring scenarios."`
+
+**Gap 5 — Exa Deep without funding data**
+
+- Condition: `result.exaDeep !== null` AND `result.exaDeep.data.fundingTotal === null` AND `result.exaDeep.data.lastValuation === null`.
+- Severity: `"medium"`
+- Gap: `"Exa Deep result missing funding or valuation data"`
+- Detail: `"Exa Deep Research identified the company but returned neither a funding total nor a last-known valuation, limiting private-company financial context."`
+
+### B6 — `computeDataQualityScore(tensions: readonly ValidationTension[], gaps: readonly ValidationGap[]): number`
+
+```
+score = 100
+score -= tensions.filter(t => t.severity === "high").length * 20
+score -= tensions.filter(t => t.severity === "medium").length * 10
+score -= gaps.filter(g => g.severity === "high").length * 15
+score -= gaps.filter(g => g.severity === "medium").length * 5
+return Math.max(0, score)
+```
+
+Low-severity tensions and gaps are omitted from the score formula (they are informational only).
+
+### B7 — `validateWaterfall(result: WaterfallResult): ValidationReport`
+
+```typescript
+export function validateWaterfall(result: WaterfallResult): ValidationReport {
+  const coverageLabel = buildCoverageLabel(result);
+  const crossChecks = runCrossChecks(result);
+  const tensions = detectTensions(crossChecks);
+  const gaps = detectGaps(result);
+  const dataQualityScore = computeDataQualityScore(tensions, gaps);
+  return { coverageLabel, dataQualityScore, tensions, gaps, crossChecks };
+}
+```
+
+---
+
+## Part C — `src/lib/analyzer.ts` (wiring)
+
+### C1 — Add type import
+
+```typescript
+import type {
+  // ... existing ...
+  ValidationReport,      // ← ADD
+  WaterfallResult,
+} from "@/lib/types";
+```
+
+### C2 — Add function import (~line 25)
+
+```typescript
+import { validateWaterfall } from "@/lib/agents/validation-agent";
+```
+
+### C3 — Call in `analyzeCompany` after `runWaterfall` (~line 1642)
+
+```typescript
+const waterfallResult = await runWaterfall({ query });
+const validationReport = validateWaterfall(waterfallResult);   // ← ADD
+const entityResolution = buildEntityResolution(query, waterfallResult);
+```
+
+`validationReport` is now in scope for the entire `analyzeCompany` function.
+
+### C4 — Add to return object (~line 1757, after `sectionAudit`)
+
+```typescript
+  sectionAudit,
+  validationReport,     // ← ADD
+  newsHighlights,
+```
+
+---
+
+## Coverage Label Decision Table
+
+| secEdgar | fmp | finnhub | exaDeep | claudeFallback | isAmbiguous | Label |
+|----------|-----|---------|---------|----------------|-------------|-------|
+| any | any | any | any | any | true | Ambiguous Entity |
+| ✓ | ✓ | ✓ | any | any | false | Strong Public |
+| null | null | null | ✓ | any | false | Limited Private |
+| null | null | null | null | ✓ | false | Thin |
+| any (not all 3) | — | — | null | any | false | Registry-led (if CH or GLEIF present) |
+| null | null | null | null | null | false | Thin |
+
+---
+
+## Data Quality Score Examples
+
+| Scenario | Tensions | Gaps | Score |
+|----------|----------|------|-------|
+| Apple (SEC + FMP + Finnhub, all consistent) | 0 | 0 | 100 |
+| Apple with entity name mismatch (high) | 1 high | 0 | 80 |
+| Revolut (no SEC, CH present) | 0 | 1 high (no XBRL) | 85 |
+| SpaceX via Exa (no funding data) | 0 | 1 medium | 95 |
+| Metaspacex false match (name mismatch + ticker mismatch) | 1 high + 1 medium | 0 | 70 |
+
+---
+
+## Test Cases (verify after implementation)
+
+| Company | Expected Label | Expected Tensions | Expected Gaps |
+|---------|---------------|-------------------|---------------|
+| Apple (AAPL, SEC + FMP + Finnhub) | Strong Public | 0 if data consistent | Possible: no news >30d |
+| Revolut (CH only) | Registry-led | 0 | No SEC XBRL for UK entity (N/A) |
+| SpaceX (Exa Deep only) | Limited Private | 0 | Exa Deep without funding if blank |
+| Deutsche Bank (Finnhub + GLEIF) | Registry-led | 0 | No SEC XBRL |
+| Metaspacex false match | Ambiguous Entity or Registry-led | Entity name mismatch (high) | — |
+
+---
+
+## Out of Scope
+
+- UI rendering of `ValidationReport` (no frontend changes in this phase)
+- Adding `validationReport` to the delta comparison in `compareReports` — deferred
+- Caching `ValidationReport` separately — covered by existing analysis cache
+- Any changes to `confidence.ts`, `investment-memo.ts`, or narrative generation — `validationReport` is computed independently
+- Logging of tensions/gaps to the server log — no new `console.error` calls needed

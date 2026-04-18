@@ -47,6 +47,8 @@ function normalizeReportShape(report: AnalysisReport): AnalysisReport {
     coverageGaps: report.coverageGaps ?? [],
     disagreementNotes: report.disagreementNotes ?? [],
     sectionAudit: report.sectionAudit ?? [],
+    validationReport:
+      report.validationReport ?? placeholderAnalysisReport.validationReport,
     sources: report.sources ?? [],
   };
   const hasModernMemoShape =

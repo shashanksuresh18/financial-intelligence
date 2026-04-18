@@ -103,12 +103,22 @@ function isLikelyPrivate(
   finnhubResult: Awaited<ReturnType<typeof fetchFinnhubData>>,
   fmpResult: DataSourceResult<FmpData> | null,
 ): boolean {
+  // A symbol with no quote and no basic financials is a false-match or inaccessible listing.
   const noFinnhubTicker =
     !finnhubResult.success ||
-    finnhubResult.data.symbol.trim().length === 0;
-  const noFmpData = fmpResult === null;
+    finnhubResult.data.symbol.trim().length === 0 ||
+    (finnhubResult.data.quote === null &&
+      finnhubResult.data.basicFinancials === null);
+  // Peers-only FMP data is not sufficient — a false-matched ticker may have peers
+  // but no financial metrics (key-metrics/enterprise-values require a real listing).
+  const noFmpFinancials =
+    fmpResult === null ||
+    (fmpResult.data.historicalMultiples.length === 0 &&
+      fmpResult.data.enterpriseValues.length === 0 &&
+      fmpResult.data.analystEstimates.length === 0 &&
+      fmpResult.data.priceTargetConsensus === null);
 
-  return noFinnhubTicker && noFmpData;
+  return noFinnhubTicker && noFmpFinancials;
 }
 
 function buildActiveSources(result: WaterfallResult): readonly DataSource[] {

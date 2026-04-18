@@ -18,11 +18,13 @@ import type {
   SectionAuditItem,
   StreetView,
   ValuationMetricComparison,
+  ValidationReport,
   ValuationView,
   WaterfallResult,
 } from "@/lib/types";
 import { buildEntityResolution } from "@/lib/agents/entity-agent";
 import { runWaterfall } from "@/lib/agents/market-data-agent";
+import { validateWaterfall } from "@/lib/agents/validation-agent";
 import {
   extractLatestFact,
   NET_INCOME_CONCEPTS,
@@ -1640,6 +1642,8 @@ function compareReports(
 
 export async function analyzeCompany(query: string): Promise<AnalysisReport> {
   const waterfallResult = await runWaterfall({ query });
+  const validationReport: ValidationReport =
+    validateWaterfall(waterfallResult);
   const entityResolution = buildEntityResolution(query, waterfallResult);
   const confidence = computeConfidence(waterfallResult, entityResolution);
   const metrics = assembleMetrics(waterfallResult);
@@ -1754,6 +1758,7 @@ export async function analyzeCompany(query: string): Promise<AnalysisReport> {
     coverageGaps,
     disagreementNotes,
     sectionAudit,
+    validationReport,
     newsHighlights,
     sources: waterfallResult.activeSources,
     isAmbiguous: waterfallResult.finnhub?.data.isAmbiguous ?? false,

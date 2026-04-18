@@ -352,6 +352,7 @@ export type AnalysisReport = {
   readonly coverageGaps: readonly CoverageGap[];
   readonly disagreementNotes: readonly DisagreementNote[];
   readonly sectionAudit: readonly SectionAuditItem[];
+  readonly validationReport: ValidationReport;
   readonly newsHighlights: readonly NewsHighlight[];
   readonly sources: readonly DataSource[];
   readonly isAmbiguous?: boolean;
@@ -738,6 +739,43 @@ export type GleifData = {
   readonly allMatches: readonly GleifRecord[];
 };
 
+export type ValidationSeverity = "high" | "medium" | "low";
+
+export type ValidationCoverageLabel =
+  | "Strong Public"
+  | "Registry-led"
+  | "Ambiguous Entity"
+  | "Limited Private"
+  | "Thin";
+
+export type ValidationTension = {
+  readonly check: string;
+  readonly detail: string;
+  readonly sources: readonly DataSource[];
+  readonly severity: ValidationSeverity;
+};
+
+export type ValidationCrossCheck = {
+  readonly check: string;
+  readonly passed: boolean;
+  readonly detail: string;
+  readonly sources: readonly DataSource[];
+};
+
+export type ValidationGap = {
+  readonly gap: string;
+  readonly detail: string;
+  readonly severity: ValidationSeverity;
+};
+
+export type ValidationReport = {
+  readonly coverageLabel: ValidationCoverageLabel;
+  readonly dataQualityScore: number;
+  readonly tensions: readonly ValidationTension[];
+  readonly gaps: readonly ValidationGap[];
+  readonly crossChecks: readonly ValidationCrossCheck[];
+};
+
 export type ExaDeepData = {
   readonly companyName: string;
   readonly overview: string;
@@ -845,6 +883,14 @@ export const placeholderConfidence: ConfidenceScore = {
   components: [],
 };
 
+export const placeholderValidationReport: ValidationReport = {
+  coverageLabel: "Thin",
+  dataQualityScore: 0,
+  tensions: [],
+  gaps: [],
+  crossChecks: [],
+};
+
 export const placeholderAnalysisReport: AnalysisReport = {
   company: "Example Company",
   entityResolution: {
@@ -930,6 +976,7 @@ export const placeholderAnalysisReport: AnalysisReport = {
   coverageGaps: [],
   disagreementNotes: [],
   sectionAudit: [],
+  validationReport: placeholderValidationReport,
   newsHighlights: [],
   sources: [],
   updatedAt: "1970-01-01T00:00:00.000Z",

@@ -12,14 +12,8 @@ const BASE_URL = "https://financialmodelingprep.com";
 const MAX_HISTORICAL_ROWS = 8;
 const MAX_FORWARD_ESTIMATES = 3;
 const MAX_PEERS = 5;
-const PREFERRED_SEARCH_EXCHANGES = new Set([
-  "",
-  "NYSE",
-  "NASDAQ",
-  "LSE",
-  "XETRA",
-  "SIX",
-]);
+const PRIMARY_EXCHANGES = new Set(["NYSE", "NASDAQ"]);
+const SECONDARY_EXCHANGES = new Set(["LSE", "XETRA", "SIX"]);
 
 function getApiKey(): string {
   return process.env.FMP_API_KEY ?? "";
@@ -321,9 +315,9 @@ async function searchFmpSymbol(query: string): Promise<string | null> {
     }
 
     const result = await fetchJson<unknown>(
-      buildUrl("/stable/search", {
+      buildUrl("/stable/search-name", {
         query: trimmedQuery,
-        limit: "5",
+        limit: "10",
       }),
     );
 
@@ -337,7 +331,7 @@ async function searchFmpSymbol(query: string): Promise<string | null> {
     }
 
     const candidates = pickArray(result.data)
-      .map((row): { readonly symbol: string; readonly exchangeShortName: string } | null => {
+      .map((row): { readonly symbol: string; readonly exchange: string } | null => {
         if (!isRecord(row)) {
           return null;
         }
@@ -348,14 +342,14 @@ async function searchFmpSymbol(query: string): Promise<string | null> {
           return null;
         }
 
-        const exchangeShortName =
-          typeof row["exchangeShortName"] === "string"
-            ? row["exchangeShortName"].trim().toUpperCase()
+        const exchange =
+          typeof row["exchange"] === "string"
+            ? row["exchange"].trim().toUpperCase()
             : "";
 
         return {
           symbol,
-          exchangeShortName,
+          exchange,
         };
       })
       .filter(
@@ -363,14 +357,14 @@ async function searchFmpSymbol(query: string): Promise<string | null> {
           row,
         ): row is {
           readonly symbol: string;
-          readonly exchangeShortName: string;
+          readonly exchange: string;
         } => row !== null,
       );
 
     const preferred =
-      candidates.find((candidate) =>
-        PREFERRED_SEARCH_EXCHANGES.has(candidate.exchangeShortName),
-      ) ?? candidates[0];
+      candidates.find((c) => PRIMARY_EXCHANGES.has(c.exchange)) ??
+      candidates.find((c) => SECONDARY_EXCHANGES.has(c.exchange)) ??
+      candidates[0];
 
     return preferred?.symbol ?? null;
   } catch (error: unknown) {
