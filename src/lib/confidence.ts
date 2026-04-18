@@ -139,6 +139,16 @@ function buildIdentityComponent(
     };
   }
 
+  if (result.exaDeep !== null) {
+    return {
+      key: "identity",
+      label: "Entity Match",
+      score: 14,
+      rationale:
+        "Entity identified via Exa Deep Research; no primary registry or market match.",
+    };
+  }
+
   return {
     key: "identity",
     label: "Entity Match",
@@ -215,6 +225,22 @@ function buildFinancialsComponent(result: WaterfallResult): ConfidenceComponent 
       label: "Financial Depth",
       score: 10,
       rationale: "Financials come from AI-extracted web evidence rather than primary filings.",
+    };
+  }
+
+  if (result.exaDeep !== null) {
+    const hasRevenue = result.exaDeep.data.estimatedRevenue !== null;
+    const hasCapital =
+      result.exaDeep.data.fundingTotal !== null ||
+      result.exaDeep.data.lastValuation !== null;
+    const score = hasRevenue && hasCapital ? 12 : hasRevenue || hasCapital ? 8 : 5;
+
+    return {
+      key: "financials",
+      label: "Financial Depth",
+      score,
+      rationale:
+        "Financial figures sourced from Exa Deep Research synthesis; not primary filings.",
     };
   }
 
@@ -337,6 +363,15 @@ function buildFreshnessComponent(result: WaterfallResult): ConfidenceComponent {
       label: "Freshness",
       score: 4,
       rationale: "Freshness depends on web search fallback and is less reliable.",
+    };
+  }
+
+  if (result.exaDeep !== null) {
+    return {
+      key: "freshness",
+      label: "Freshness",
+      score: 6,
+      rationale: "Exa Deep Research returned structured, grounded results.",
     };
   }
 

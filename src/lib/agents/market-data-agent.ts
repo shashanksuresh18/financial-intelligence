@@ -1,12 +1,15 @@
 import type {
   DataSource,
   DataSourceResult,
+  ExaDeepData,
+  FmpData,
   FinancialMetric,
   WaterfallInput,
   WaterfallResult,
 } from "@/lib/types";
 import { fetchClaudeFallbackData } from "@/lib/datasources/claude-fallback";
 import { fetchCompaniesHouseData } from "@/lib/datasources/companies-house";
+import { fetchExaDeepData } from "@/lib/datasources/exa-deep";
 import { fetchFinnhubData } from "@/lib/datasources/finnhub";
 import { fetchFmpData } from "@/lib/datasources/fmp";
 import { fetchGleifData } from "@/lib/datasources/gleif";
@@ -96,6 +99,18 @@ function shouldSkipCompaniesHouseLookup(
   );
 }
 
+function isLikelyPrivate(
+  finnhubResult: Awaited<ReturnType<typeof fetchFinnhubData>>,
+  fmpResult: DataSourceResult<FmpData> | null,
+): boolean {
+  const noFinnhubTicker =
+    !finnhubResult.success ||
+    finnhubResult.data.symbol.trim().length === 0;
+  const noFmpData = fmpResult === null;
+
+  return noFinnhubTicker && noFmpData;
+}
+
 function buildActiveSources(result: WaterfallResult): readonly DataSource[] {
   return [
     ...(result.finnhub !== null ? (["finnhub"] as const) : []),
@@ -103,6 +118,7 @@ function buildActiveSources(result: WaterfallResult): readonly DataSource[] {
     ...(result.secEdgar !== null ? (["sec-edgar"] as const) : []),
     ...(result.companiesHouse !== null ? (["companies-house"] as const) : []),
     ...(result.gleif !== null ? (["gleif"] as const) : []),
+    ...(result.exaDeep !== null ? (["exa-deep"] as const) : []),
     ...(result.claudeFallback !== null ? (["claude-fallback"] as const) : []),
   ];
 }
@@ -111,6 +127,7 @@ export async function runWaterfall(
   input: WaterfallInput,
 ): Promise<WaterfallResult> {
   const finnhubPromise = fetchFinnhubData(input.query);
+  const fmpPromise = fetchFmpData(input.query);
   const gleifPromise = fetchGleifData(input.query);
 
   const finnhubResult = await finnhubPromise;
@@ -123,28 +140,31 @@ export async function runWaterfall(
     ? Promise.resolve(null)
     : fetchCompaniesHouseData(input.query);
 
-  const [edgarResult, chResult, gleifResult] = await Promise.all([
+  const [edgarResult, chResult, gleifResult, fmpResult] = await Promise.all([
     fetchSecEdgarData(input.query, { tickerHint }),
     companiesHouseResultPromise,
     gleifPromise,
+    fmpPromise,
   ]);
 
   const finnhub = wrapSource("finnhub", finnhubResult);
-  const fmp =
-    finnhubResult.success
-      ? wrapSource("fmp", await fetchFmpData(finnhubResult.data.symbol))
-      : null;
+  const fmp = wrapSource("fmp", fmpResult);
   const secEdgar = wrapSource("sec-edgar", edgarResult);
   const companiesHouse =
     chResult === null ? null : wrapSource("companies-house", chResult);
   const gleif = wrapSource("gleif", gleifResult);
+  const exaDeep: DataSourceResult<ExaDeepData> | null =
+    isLikelyPrivate(finnhubResult, fmp)
+      ? wrapSource("exa-deep", await fetchExaDeepData(input.query))
+      : null;
 
   const anyData =
     finnhub !== null ||
     fmp !== null ||
     secEdgar !== null ||
     companiesHouse !== null ||
-    gleif !== null;
+    gleif !== null ||
+    exaDeep !== null;
   const shouldSupplementWithClaude =
     finnhub === null &&
     fmp === null &&
@@ -194,6 +214,7 @@ export async function runWaterfall(
     secEdgar,
     companiesHouse,
     gleif,
+    exaDeep,
     claudeFallback,
     activeSources: [],
   };

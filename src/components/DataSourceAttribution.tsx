@@ -29,6 +29,10 @@ const SOURCE_DETAILS: Record<
     label: "GLEIF",
     note: "Global entity identity and legal registration metadata.",
   },
+  "exa-deep": {
+    label: "Exa Deep",
+    note: "Private-company web research synthesized into structured company, funding, valuation, investor, competitor, and recent-news fields.",
+  },
   "claude-fallback": {
     label: "Claude Fallback",
     note: "AI web-search enrichment for public-web company facts, narrative context, and hard-to-source private-company metrics. Verify figures against primary filings and official company documents.",

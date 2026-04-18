@@ -1,17 +1,18 @@
-import type { EntityResolution } from "@/lib/types";
+import type { DataSource, EntityResolution } from "@/lib/types";
 
 type EntityResolutionPanelProps = {
   readonly entityResolution: EntityResolution;
 };
 
-const SOURCE_LABELS = {
+const SOURCE_LABELS: Record<DataSource, string> = {
   finnhub: "Finnhub",
   fmp: "FMP",
   "sec-edgar": "SEC EDGAR",
   "companies-house": "Companies House",
   gleif: "GLEIF",
+  "exa-deep": "Exa Deep",
   "claude-fallback": "Claude Fallback",
-} as const;
+};
 
 export function EntityResolutionPanel({
   entityResolution,

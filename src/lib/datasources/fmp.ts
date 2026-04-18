@@ -12,6 +12,14 @@ const BASE_URL = "https://financialmodelingprep.com";
 const MAX_HISTORICAL_ROWS = 8;
 const MAX_FORWARD_ESTIMATES = 3;
 const MAX_PEERS = 5;
+const PREFERRED_SEARCH_EXCHANGES = new Set([
+  "",
+  "NYSE",
+  "NASDAQ",
+  "LSE",
+  "XETRA",
+  "SIX",
+]);
 
 function getApiKey(): string {
   return process.env.FMP_API_KEY ?? "";
@@ -304,7 +312,78 @@ function normalizePeerSymbols(value: unknown, symbol: string): readonly string[]
   return [];
 }
 
-export async function fetchFmpData(symbol: string): Promise<ApiResult<FmpData>> {
+async function searchFmpSymbol(query: string): Promise<string | null> {
+  try {
+    const trimmedQuery = query.trim();
+
+    if (trimmedQuery.length === 0) {
+      return null;
+    }
+
+    const result = await fetchJson<unknown>(
+      buildUrl("/stable/search", {
+        query: trimmedQuery,
+        limit: "5",
+      }),
+    );
+
+    if (!result.success) {
+      console.error("[fmp] symbol search failed", {
+        query,
+        error: result.error,
+      });
+
+      return null;
+    }
+
+    const candidates = pickArray(result.data)
+      .map((row): { readonly symbol: string; readonly exchangeShortName: string } | null => {
+        if (!isRecord(row)) {
+          return null;
+        }
+
+        const symbol = normalizeString(row["symbol"]);
+
+        if (symbol === null) {
+          return null;
+        }
+
+        const exchangeShortName =
+          typeof row["exchangeShortName"] === "string"
+            ? row["exchangeShortName"].trim().toUpperCase()
+            : "";
+
+        return {
+          symbol,
+          exchangeShortName,
+        };
+      })
+      .filter(
+        (
+          row,
+        ): row is {
+          readonly symbol: string;
+          readonly exchangeShortName: string;
+        } => row !== null,
+      );
+
+    const preferred =
+      candidates.find((candidate) =>
+        PREFERRED_SEARCH_EXCHANGES.has(candidate.exchangeShortName),
+      ) ?? candidates[0];
+
+    return preferred?.symbol ?? null;
+  } catch (error: unknown) {
+    console.error("[fmp] symbol search failed", {
+      query,
+      error: String(error),
+    });
+
+    return null;
+  }
+}
+
+export async function fetchFmpData(query: string): Promise<ApiResult<FmpData>> {
   if (!hasApiKey()) {
     return {
       success: false,
@@ -312,14 +391,16 @@ export async function fetchFmpData(symbol: string): Promise<ApiResult<FmpData>> 
     };
   }
 
-  const upperSymbol = symbol.trim().toUpperCase();
+  const resolved = await searchFmpSymbol(query);
 
-  if (upperSymbol.length === 0) {
+  if (resolved === null || resolved.trim().length === 0) {
     return {
       success: false,
-      error: "FMP symbol is required",
+      error: `FMP: no symbol found for "${query}"`,
     };
   }
+
+  const upperSymbol = resolved.trim().toUpperCase();
 
   const [
     historicalMultiplesResult,

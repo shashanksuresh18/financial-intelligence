@@ -32,6 +32,7 @@ const SOURCE_LABELS: Record<DataSource, string> = {
   "sec-edgar": "SEC EDGAR",
   "companies-house": "Companies House",
   gleif: "GLEIF",
+  "exa-deep": "Exa Deep",
   "claude-fallback": "Claude Fallback",
 };
 

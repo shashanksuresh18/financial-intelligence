@@ -4,6 +4,7 @@ export type DataSource =
   | "sec-edgar"
   | "companies-house"
   | "gleif"
+  | "exa-deep"
   | "claude-fallback";
 
 export type ConfidenceLevel = "low" | "medium" | "high";
@@ -737,6 +738,19 @@ export type GleifData = {
   readonly allMatches: readonly GleifRecord[];
 };
 
+export type ExaDeepData = {
+  readonly companyName: string;
+  readonly overview: string;
+  readonly estimatedRevenue: string | null;
+  readonly fundingTotal: string | null;
+  readonly lastValuation: string | null;
+  readonly foundedYear: string | null;
+  readonly headquarters: string | null;
+  readonly keyInvestors: readonly string[];
+  readonly competitors: readonly string[];
+  readonly recentNews: string;
+};
+
 export type ClaudeFallbackResult = {
   readonly narrative: string;
   readonly extractedMetrics: readonly FinancialMetric[];
@@ -755,6 +769,7 @@ export type WaterfallResult = {
   readonly secEdgar: DataSourceResult<SecEdgarData> | null;
   readonly companiesHouse: DataSourceResult<CompaniesHouseData> | null;
   readonly gleif: DataSourceResult<GleifData> | null;
+  readonly exaDeep: DataSourceResult<ExaDeepData> | null;
   readonly claudeFallback: DataSourceResult<ClaudeFallbackResult> | null;
   readonly activeSources: readonly DataSource[];
 };
