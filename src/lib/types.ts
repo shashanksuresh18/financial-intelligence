@@ -239,6 +239,7 @@ export type InvestmentMemo = {
   readonly reasonedInference: readonly string[];
   readonly unknowns: readonly string[];
   readonly logic: RecommendationLogic;
+  readonly stressTest?: StressTestResult | null;
 };
 
 export type ReportDelta = {
@@ -774,6 +775,26 @@ export type ValidationReport = {
   readonly tensions: readonly ValidationTension[];
   readonly gaps: readonly ValidationGap[];
   readonly crossChecks: readonly ValidationCrossCheck[];
+};
+
+export type ChallengerItem = {
+  readonly claim: string;
+  readonly severity: ValidationSeverity;
+  readonly citedSource: string;
+};
+
+export type ChallengerReport = {
+  readonly unstatedAssumptions: readonly ChallengerItem[];
+  readonly evidenceGaps: readonly ChallengerItem[];
+  readonly counterScenarios: readonly ChallengerItem[];
+};
+
+export type StressTestResult = {
+  readonly unstatedAssumptions: readonly ChallengerItem[];
+  readonly evidenceGaps: readonly ChallengerItem[];
+  readonly counterScenarios: readonly ChallengerItem[];
+  readonly convictionDowngraded: boolean;
+  readonly originalConviction: ConfidenceLevel;
 };
 
 export type ExaDeepData = {
