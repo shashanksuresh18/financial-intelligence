@@ -1,0 +1,641 @@
+﻿
+> finance_intelligence_tmp@0.1.0 dev
+> next dev
+
+Γû▓ Next.js 16.2.3 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.234:3000
+- Environments: .env.local, .env
+Γ£ô Ready in 1705ms
+- Experiments (use with caution):
+  ┬╖ cpus: 1
+  Γ£ô workerThreads
+
+ GET / 200 in 1905ms (next.js: 580ms, application-code: 1325ms)
+node.exe : (node:23324) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland 
+alternative instead.
+At C:\Program Files\nodejs\npm.ps1:29 char:3
++   & $NODE_EXE $NPM_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:23324) [D...native instead.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[db] using Turso storage {
+  url: 'libsql://financial-intelligence-shashanksuresh18.aws-us-east-1.turso.io',
+  runtime: 'node'
+}
+ GET /api/monitor 200 in 4.6s (next.js: 1044ms, application-code: 3.6s)
+ GET / 200 in 312ms (next.js: 11ms, application-code: 301ms)
+ GET /api/monitor 200 in 432ms (next.js: 43ms, application-code: 388ms)
+ POST /api/analyze 200 in 6.9s (next.js: 1712ms, application-code: 5.2s)
+ POST /api/analyze 200 in 5.3s (next.js: 15ms, application-code: 5.3s)
+[gleif] no results { query: 'SpaceX', variants: [ 'SpaceX', 'spacex' ] }
+[search] GLEIF search failed { query: 'SpaceX', error: 'No GLEIF results for: "SpaceX"' }
+ GET /api/search?q=SpaceX 200 in 4.2s (next.js: 1103ms, application-code: 3.1s)
+[gleif] no results { query: 'SpaceX', variants: [ 'SpaceX', 'spacex' ] }
+[search] GLEIF search failed { query: 'SpaceX', error: 'No GLEIF results for: "SpaceX"' }
+ GET /api/search?q=SpaceX 200 in 3.2s (next.js: 251ms, application-code: 2.9s)
+[gleif] no results { query: 'SpaceX', variants: [ 'SpaceX', 'spacex' ] }
+[search] GLEIF search failed { query: 'SpaceX', error: 'No GLEIF results for: "SpaceX"' }
+ GET /api/search?q=SpaceX 200 in 2.8s (next.js: 38ms, application-code: 2.7s)
+[analyze] cache bypass requested { company: 'SpaceX', companyId: 'spacex' }
+[market-data-agent] forcing private-company route { query: 'SpaceX' }
+[gleif] no results { query: 'SpaceX', variants: [ 'SpaceX', 'spacex' ] }
+[sec-edgar] searchEdgarCik failed { query: 'SpaceX', error: 'No CIK found for: "SpaceX"' }
+[orchestrator] fetchMarketData ok { ms: 14614 }
+[orchestrator] resolveEntity ok { ms: 4 }
+[orchestrator] validateResults ok { ms: 100 }
+[claude-narrative] messages.create succeeded {
+  company: 'SpaceX',
+  model: 'claude-sonnet-4-20250514',
+  textLength: 2750
+}
+[memo-agent] completed {
+  company: 'SpaceX',
+  configuredModel: 'claude-sonnet-4-20250514',
+  challengerApplied: false,
+  originalConviction: 'low',
+  finalConviction: 'low',
+  convictionDowngraded: false,
+  validationCoverage: 'Limited Private'
+}
+[orchestrator] generateDraftMemo ok { ms: 13133 }
+[gleif] no results { query: 'SpaceX', variants: [ 'SpaceX', 'spacex' ] }
+[search] GLEIF search failed { query: 'SpaceX', error: 'No GLEIF results for: "SpaceX"' }
+ GET /api/search?q=SpaceX 200 in 818ms (next.js: 26ms, application-code: 792ms)
+[challenger-agent] response length {
+  chars: 2634,
+  tokens: 654,
+  maxTokens: 2000,
+  endsWithClosingBrace: true,
+  stopReason: 'end_turn'
+} ends with: orrupted quality assessment.",
+      "severity": "high",
+      "citedSource": "none"
+    }
+  ]
+}
+```
+[challenger-agent] parsed 3 unstatedAssumptions, 3 evidenceGaps, 2 counterScenarios
+[challenger-agent] succeeded {
+  company: 'SpaceX',
+  model: 'claude-haiku-4-5',
+  assumptionCount: 3,
+  gapCount: 3,
+  scenarioCount: 2
+}
+[orchestrator] challengeMemo ok { ms: 6711 }
+[gleif] no results { query: 'SpaceX', variants: [ 'SpaceX', 'spacex' ] }
+[search] GLEIF search failed { query: 'SpaceX', error: 'No GLEIF results for: "SpaceX"' }
+ GET /api/search?q=SpaceX 200 in 482ms (next.js: 13ms, application-code: 469ms)
+[claude-narrative] messages.create succeeded {
+  company: 'SpaceX',
+  model: 'claude-sonnet-4-20250514',
+  textLength: 3033
+}
+[memo-agent] completed {
+  company: 'SpaceX',
+  configuredModel: 'claude-sonnet-4-20250514',
+  challengerApplied: true,
+  originalConviction: 'low',
+  finalConviction: 'low',
+  convictionDowngraded: true,
+  validationCoverage: 'Limited Private'
+}
+[orchestrator] generateFinalMemo ok { ms: 11894 }
+[orchestrator] runAnalysis complete { query: 'SpaceX', totalMs: 46456 }
+ POST /api/analyze 200 in 52s (next.js: 156ms, application-code: 52s)
+[analyze] cache bypass requested { company: 'SpaceX', companyId: 'spacex' }
+[market-data-agent] forcing private-company route { query: 'SpaceX' }
+[gleif] no results { query: 'SpaceX', variants: [ 'SpaceX', 'spacex' ] }
+[sec-edgar] searchEdgarCik failed { query: 'SpaceX', error: 'No CIK found for: "SpaceX"' }
+[orchestrator] fetchMarketData ok { ms: 13827 }
+[orchestrator] resolveEntity ok { ms: 0 }
+[orchestrator] validateResults ok { ms: 0 }
+ POST /api/analyze 200 in 15.0s (next.js: 10ms, application-code: 15.0s)
+ GET /?company=SpaceX 200 in 789ms (next.js: 7ms, application-code: 782ms)
+ GET /api/monitor 200 in 3.9s (next.js: 10ms, application-code: 3.9s)
+[claude-narrative] messages.create succeeded {
+  company: 'SpaceX',
+  model: 'claude-sonnet-4-20250514',
+  textLength: 3167
+}
+[memo-agent] completed {
+  company: 'SpaceX',
+  configuredModel: 'claude-sonnet-4-20250514',
+  challengerApplied: false,
+  originalConviction: 'low',
+  finalConviction: 'low',
+  convictionDowngraded: false,
+  validationCoverage: 'Limited Private'
+}
+[orchestrator] generateDraftMemo ok { ms: 16735 }
+[challenger-agent] response length {
+  chars: 2819,
+  tokens: 676,
+  maxTokens: 2000,
+  endsWithClosingBrace: true,
+  stopReason: 'end_turn'
+} ends with:  investment unsuitability.",
+      "severity": "medium",
+      "citedSource": "none"
+    }
+  ]
+}
+```
+[challenger-agent] parsed 3 unstatedAssumptions, 3 evidenceGaps, 2 counterScenarios
+[challenger-agent] succeeded {
+  company: 'SpaceX',
+  model: 'claude-haiku-4-5',
+  assumptionCount: 3,
+  gapCount: 3,
+  scenarioCount: 2
+}
+[orchestrator] challengeMemo ok { ms: 6882 }
+ POST /api/analyze 200 in 3.9s (next.js: 10ms, application-code: 3.9s)
+[analyze] cache bypass requested { company: 'SpaceX', companyId: 'spacex' }
+[market-data-agent] forcing private-company route { query: 'SpaceX' }
+[gleif] no results { query: 'SpaceX', variants: [ 'SpaceX', 'spacex' ] }
+[sec-edgar] searchEdgarCik failed { query: 'SpaceX', error: 'No CIK found for: "SpaceX"' }
+[claude-narrative] messages.create succeeded {
+  company: 'SpaceX',
+  model: 'claude-sonnet-4-20250514',
+  textLength: 3168
+}
+[memo-agent] completed {
+  company: 'SpaceX',
+  configuredModel: 'claude-sonnet-4-20250514',
+  challengerApplied: true,
+  originalConviction: 'low',
+  finalConviction: 'low',
+  convictionDowngraded: true,
+  validationCoverage: 'Limited Private'
+}
+[orchestrator] generateFinalMemo ok { ms: 15017 }
+[orchestrator] runAnalysis complete { query: 'SpaceX', totalMs: 52461 }
+[orchestrator] fetchMarketData ok { ms: 12746 }
+[orchestrator] resolveEntity ok { ms: 0 }
+[orchestrator] validateResults ok { ms: 0 }
+[claude-narrative] messages.create succeeded {
+  company: 'SpaceX',
+  model: 'claude-sonnet-4-20250514',
+  textLength: 3038
+}
+[memo-agent] completed {
+  company: 'SpaceX',
+  configuredModel: 'claude-sonnet-4-20250514',
+  challengerApplied: false,
+  originalConviction: 'low',
+  finalConviction: 'low',
+  convictionDowngraded: false,
+  validationCoverage: 'Limited Private'
+}
+[orchestrator] generateDraftMemo ok { ms: 13215 }
+[challenger-agent] response length {
+  chars: 2827,
+  tokens: 720,
+  maxTokens: 2000,
+  endsWithClosingBrace: true,
+  stopReason: 'end_turn'
+} ends with: avoid' recommendation.",
+      "severity": "medium",
+      "citedSource": "exa-deep"
+    }
+  ]
+}
+```
+[challenger-agent] parsed 3 unstatedAssumptions, 3 evidenceGaps, 2 counterScenarios
+[challenger-agent] succeeded {
+  company: 'SpaceX',
+  model: 'claude-haiku-4-5',
+  assumptionCount: 3,
+  gapCount: 3,
+  scenarioCount: 2
+}
+[orchestrator] challengeMemo ok { ms: 7060 }
+[claude-narrative] messages.create succeeded {
+  company: 'SpaceX',
+  model: 'claude-sonnet-4-20250514',
+  textLength: 3008
+}
+[memo-agent] completed {
+  company: 'SpaceX',
+  configuredModel: 'claude-sonnet-4-20250514',
+  challengerApplied: true,
+  originalConviction: 'low',
+  finalConviction: 'low',
+  convictionDowngraded: true,
+  validationCoverage: 'Limited Private'
+}
+[orchestrator] generateFinalMemo ok { ms: 15159 }
+[orchestrator] runAnalysis complete { query: 'SpaceX', totalMs: 48180 }
+ POST /api/analyze 200 in 54s (next.js: 5ms, application-code: 54s)
+[companies-house] no results { query: 'SKlarna', variants: [ 'SKlarna', 'sklarna' ] }
+[gleif] no results { query: 'SKlarna', variants: [ 'SKlarna', 'sklarna' ] }
+[search] Companies House search failed {
+  query: 'SKlarna',
+  error: 'No Companies House results for: "SKlarna"'
+}
+[search] GLEIF search failed { query: 'SKlarna', error: 'No GLEIF results for: "SKlarna"' }
+ GET /api/search?q=SKlarna 200 in 735ms (next.js: 9ms, application-code: 727ms)
+[gleif] no results { query: 'Klarna', variants: [ 'Klarna', 'klarna' ] }
+[finnhub] skipping premium endpoint on current plan {
+  endpoint: '/stock/price-target',
+  symbol: 'KLAR',
+  error: 'HTTP 403: Forbidden'
+}
+[sec-edgar] getXbrlFacts failed {
+  cik: '0002003292',
+  error: 'Unexpected EDGAR XBRL facts response shape'
+}
+[orchestrator] fetchMarketData ok { ms: 1734 }
+[orchestrator] resolveEntity ok { ms: 1 }
+[orchestrator] validateResults ok { ms: 10 }
+[claude-narrative] messages.create succeeded {
+  company: 'Klarna Group plc',
+  model: 'claude-sonnet-4-20250514',
+  textLength: 2606
+}
+[memo-agent] completed {
+  company: 'Klarna Group plc',
+  configuredModel: 'claude-sonnet-4-20250514',
+  challengerApplied: false,
+  originalConviction: 'medium',
+  finalConviction: 'medium',
+  convictionDowngraded: false,
+  validationCoverage: 'Strong Public'
+}
+[orchestrator] generateDraftMemo ok { ms: 16083 }
+[challenger-agent] response length {
+  chars: 2948,
+  tokens: 803,
+  maxTokens: 2000,
+  endsWithClosingBrace: true,
+  stopReason: 'end_turn'
+} ends with: eakening conviction.",
+      "severity": "high",
+      "citedSource": "finnhub, fmp"
+    }
+  ]
+}
+```
+[challenger-agent] parsed 3 unstatedAssumptions, 3 evidenceGaps, 2 counterScenarios
+[challenger-agent] succeeded {
+  company: 'Klarna Group plc',
+  model: 'claude-haiku-4-5',
+  assumptionCount: 3,
+  gapCount: 3,
+  scenarioCount: 2
+}
+[orchestrator] challengeMemo ok { ms: 7640 }
+[claude-narrative] messages.create succeeded {
+  company: 'Klarna Group plc',
+  model: 'claude-sonnet-4-20250514',
+  textLength: 2931
+}
+[memo-agent] completed {
+  company: 'Klarna Group plc',
+  configuredModel: 'claude-sonnet-4-20250514',
+  challengerApplied: true,
+  originalConviction: 'low',
+  finalConviction: 'low',
+  convictionDowngraded: true,
+  validationCoverage: 'Strong Public'
+}
+[orchestrator] generateFinalMemo ok { ms: 17875 }
+[orchestrator] runAnalysis complete { query: 'Klarna', totalMs: 43343 }
+ POST /api/analyze 200 in 53s (next.js: 16ms, application-code: 53s)
+[theme-agent] grounding {
+  theme: 'EV charging infrastructure',
+  grounding: [
+    { field: 'themeName', citations: [Array], confidence: 'high' },
+    {
+      field: 'themeDescription',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[0].companyName',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[0].ticker',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[0].exposureScore',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[0].rationale',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[1].companyName',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[1].ticker',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[1].exposureScore',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[1].rationale',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[2].companyName',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[2].ticker',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[2].exposureScore',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[2].rationale',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[3].companyName',
+      citations: [Array],
+      confidence: 'medium'
+    },
+    {
+      field: 'companies[3].ticker',
+      citations: [Array],
+      confidence: 'medium'
+    },
+    {
+      field: 'companies[3].exposureScore',
+      citations: [Array],
+      confidence: 'medium'
+    },
+    {
+      field: 'companies[3].rationale',
+      citations: [Array],
+      confidence: 'medium'
+    },
+    {
+      field: 'companies[4].companyName',
+      citations: [Array],
+      confidence: 'medium'
+    },
+    {
+      field: 'companies[4].ticker',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[4].exposureScore',
+      citations: [Array],
+      confidence: 'medium'
+    },
+    {
+      field: 'companies[4].rationale',
+      citations: [Array],
+      confidence: 'medium'
+    },
+    {
+      field: 'companies[5].companyName',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[5].ticker',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[5].exposureScore',
+      citations: [Array],
+      confidence: 'medium'
+    },
+    {
+      field: 'companies[5].rationale',
+      citations: [Array],
+      confidence: 'medium'
+    },
+    {
+      field: 'companies[6].companyName',
+      citations: [Array],
+      confidence: 'medium'
+    },
+    {
+      field: 'companies[6].ticker',
+      citations: [Array],
+      confidence: 'high'
+    },
+    {
+      field: 'companies[6].exposureScore',
+      citations: [Array],
+      confidence: 'medium'
+    },
+    {
+      field: 'companies[6].rationale',
+      citations: [Array],
+      confidence: 'medium'
+    },
+    { field: 'keyDrivers', citations: [Array], confidence: 'high' },
+    { field: 'headwinds', citations: [Array], confidence: 'high' },
+    { field: 'relatedThemes', citations: [Array], confidence: 'high' }
+  ]
+}
+ POST /api/themes 200 in 13.1s (next.js: 561ms, application-code: 12.5s)
+ GET /?company=SpaceX 200 in 1256ms (next.js: 12ms, application-code: 1243ms)
+[browser] Uncaught Error: Hydration failed because the server rendered HTML didn't match the client. As a result this 
+tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+https://react.dev/link/hydration-mismatch
+
+  ...
+    <ErrorBoundary errorComponent={undefined} errorStyles={undefined} errorScripts={undefined}>
+      <LoadingBoundary name="/" loading={null}>
+        <HTTPAccessFallbackBoundary notFound={{...}} forbidden={undefined} unauthorized={undefined}>
+          <HTTPAccessFallbackErrorBoundary pathname="/" notFound={{...}} forbidden={undefined} 
+unauthorized={undefined} ...>
+            <RedirectBoundary>
+              <RedirectErrorBoundary router={{...}}>
+                <InnerLayoutRouter url="/?company=..." tree={[...]} params={{}} cacheNode={{rsc:{...}, ...}} ...>
+                  <SegmentViewNode type="page" pagePath="page.tsx">
+                    <SegmentTrieNode>
+                    <ClientPageRoot Component={function Home} serverProvidedParams={{...}}>
+                      <Home params={Promise} searchParams={Promise}>
+                        <main className="min-h-scre...">
+                          <div>
+                          <div className="relative m...">
+                            <div aria-label="Analysis mode" className="flex w-fit..." role="tablist">
+                              <button
++                               aria-selected={false}
+-                               aria-selected="true"
++                               className="rounded-xl px-4 py-2 text-sm font-medium transition text-zinc-500 
+hover:tex..."
+-                               className="rounded-xl px-4 py-2 text-sm font-medium transition bg-zinc-800 
+text-zinc-100"
+                                onClick={function onClick}
+                                role="tab"
+                                type="button"
+                              >
++                               Company
+                              <button
++                               aria-selected={true}
+-                               aria-selected="false"
++                               className="rounded-xl px-4 py-2 text-sm font-medium transition bg-zinc-800 
+text-zinc-100"
+-                               className="rounded-xl px-4 py-2 text-sm font-medium transition text-zinc-500 
+hover:tex..."
+                                onClick={function onClick}
+                                role="tab"
+                                type="button"
+                              >
++                               Themes
+                            <ErrorBoundary section="ThemePanel">
+                              <ThemePanel onCompanySelect={function handleThemeCompanySelect}>
+                                <section
++                                 className="rounded-[2rem] border border-zinc-800 bg-zinc-950/80 
+shadow-[0_32px_120px..."
+-                                 className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_24rem]"
+                                >
+                                  <div
++                                   className="border-b border-zinc-800 bg-gradient-to-r from-zinc-950 via-zinc-950 
+to..."
+-                                   className="rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-6 py-7 
+shadow-[..."
+                                  >
++                                   <div className="max-w-4xl">
+-                                   <p className="text-xs font-semibold uppercase tracking-[0.28em] 
+text-emerald-200/80">
+                                    ...
+                                  ...
+                  ...
+                ...
+
+    at <unknown> (https://react.dev/link/hydration-mismatch)
+    at div (<anonymous>)
+    at ThemePanel (src/components/ThemePanel.tsx:224:9)
+    at Home (src/app/page.tsx:754:13)
+  222 |     <section className="rounded-[2rem] border border-zinc-800 bg-zinc-950/80 shadow-[0_32...
+  223 |       <div className="border-b border-zinc-800 bg-gradient-to-r from-zinc-950 via-zinc-95...
+> 224 |         <div className="max-w-4xl">
+      |         ^
+  225 |           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-zinc-500">
+  226 |             Theme Intelligence
+  227 |           </p>
+ GET /api/monitor 200 in 5.3s (next.js: 6ms, application-code: 5.3s)
+ GET /api/monitor 200 in 338ms (next.js: 10ms, application-code: 328ms)
+[gleif] no results { query: 'HSBC', variants: [ 'HSBC', 'hsbc' ] }
+[search] GLEIF search failed { query: 'HSBC', error: 'No GLEIF results for: "HSBC"' }
+ GET /api/search?q=HSBC 200 in 628ms (next.js: 12ms, application-code: 616ms)
+[gleif] no results { query: 'HSBC', variants: [ 'HSBC', 'hsbc' ] }
+[search] GLEIF search failed { query: 'HSBC', error: 'No GLEIF results for: "HSBC"' }
+ GET /api/search?q=HSBC 200 in 593ms (next.js: 9ms, application-code: 583ms)
+[gleif] no results { query: 'HSBC', variants: [ 'HSBC', 'hsbc' ] }
+[search] GLEIF search failed { query: 'HSBC', error: 'No GLEIF results for: "HSBC"' }
+ GET /api/search?q=HSBC 200 in 683ms (next.js: 12ms, application-code: 670ms)
+[gleif] no results {
+  query: 'HSBC Holdings PLC',
+  variants: [ 'HSBC Holdings PLC', 'hsbc holdings plc', 'hsbc' ]
+}
+[finnhub] skipping premium endpoint on current plan {
+  endpoint: '/stock/earnings',
+  symbol: 'HSBA.L',
+  error: 'HTTP 403: Forbidden'
+}
+[finnhub] skipping premium endpoint on current plan {
+  endpoint: '/stock/insider-transactions',
+  symbol: 'HSBA.L',
+  error: 'HTTP 403: Forbidden'
+}
+[finnhub] getQuote failed { symbol: 'HSBA.L', error: 'HTTP 403: Forbidden' }
+[finnhub] getRecommendations failed { symbol: 'HSBA.L', error: 'HTTP 403: Forbidden' }
+[finnhub] getNews failed { symbol: 'HSBA.L', error: 'HTTP 403: Forbidden' }
+[finnhub] getBasicFinancials failed { symbol: 'HSBA.L', error: 'HTTP 403: Forbidden' }
+[sec-edgar] ticker hint not found in SEC ticker map { query: 'HSBC Holdings PLC', tickerHint: 'HSBA.L' }
+[sec-edgar] searchEdgarCik failed {
+  query: 'HSBC Holdings PLC',
+  error: 'No CIK found for: "HSBC Holdings PLC"'
+}
+[orchestrator] fetchMarketData ok { ms: 2815 }
+[orchestrator] resolveEntity ok { ms: 0 }
+[orchestrator] validateResults ok { ms: 20 }
+[claude-narrative] messages.create succeeded {
+  company: 'HSBC Holdings PLC',
+  model: 'claude-sonnet-4-20250514',
+  textLength: 2712
+}
+[memo-agent] completed {
+  company: 'HSBC Holdings PLC',
+  configuredModel: 'claude-sonnet-4-20250514',
+  challengerApplied: false,
+  originalConviction: 'medium',
+  finalConviction: 'medium',
+  convictionDowngraded: false,
+  validationCoverage: 'Registry-led'
+}
+[orchestrator] generateDraftMemo ok { ms: 14381 }
+[challenger-agent] response length {
+  chars: 2796,
+  tokens: 761,
+  maxTokens: 2000,
+  endsWithClosingBrace: true,
+  stopReason: 'end_turn'
+} ends with: efore re-rating occurs.",
+      "severity": "medium",
+      "citedSource": "finnhub"
+    }
+  ]
+}
+```
+[challenger-agent] parsed 3 unstatedAssumptions, 3 evidenceGaps, 2 counterScenarios
+[challenger-agent] succeeded {
+  company: 'HSBC Holdings PLC',
+  model: 'claude-haiku-4-5',
+  assumptionCount: 3,
+  gapCount: 3,
+  scenarioCount: 2
+}
+[orchestrator] challengeMemo ok { ms: 7124 }
+[claude-narrative] messages.create succeeded {
+  company: 'HSBC Holdings PLC',
+  model: 'claude-sonnet-4-20250514',
+  textLength: 2792
+}
+[memo-agent] completed {
+  company: 'HSBC Holdings PLC',
+  configuredModel: 'claude-sonnet-4-20250514',
+  challengerApplied: true,
+  originalConviction: 'low',
+  finalConviction: 'low',
+  convictionDowngraded: true,
+  validationCoverage: 'Registry-led'
+}
+[orchestrator] generateFinalMemo ok { ms: 15207 }
+[orchestrator] runAnalysis complete { query: 'HSBC Holdings PLC', totalMs: 39547 }
+ POST /api/analyze 200 in 48s (next.js: 12ms, application-code: 48s)

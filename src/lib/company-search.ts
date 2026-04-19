@@ -50,6 +50,15 @@ const KNOWN_PRIVATE_COMPANIES = [
   'xAI',
   'x AI',
   'Revolut',
+  'Gopuff',
+  'Getir',
+  'Flink',
+  'Brex',
+  'Ramp',
+  'Deel',
+  'Notion',
+  'Canva',
+  'ByteDance',
 ] as const;
 
 const QUERY_STRIP_TERMS = new Set([
@@ -117,6 +126,11 @@ function compactKey(value: string): string {
 
 const KNOWN_PRIVATE_COMPANY_KEYS = new Set(
   KNOWN_PRIVATE_COMPANIES.map((company) => canonicalKey(company))
+);
+const KNOWN_PRIVATE_COMPANY_NAMES = new Map(
+  KNOWN_PRIVATE_COMPANIES.map(
+    (company) => [canonicalKey(company), company] as const
+  )
 );
 
 function tokenOverlap(
@@ -232,6 +246,12 @@ export function hasStrongCompanyNameMatch(
 
 export function isKnownPrivateCompanyQuery(query: string): boolean {
   return KNOWN_PRIVATE_COMPANY_KEYS.has(canonicalKey(query));
+}
+
+export function getKnownPrivateCompanyCanonicalName(
+  query: string
+): string | null {
+  return KNOWN_PRIVATE_COMPANY_NAMES.get(canonicalKey(query)) ?? null;
 }
 
 function scoreSearchResult(

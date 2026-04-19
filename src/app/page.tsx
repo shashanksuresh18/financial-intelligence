@@ -34,6 +34,22 @@ type ActiveTab = "company" | "themes";
 
 const ACTIVE_TAB_STORAGE_KEY = "fin:activeTab";
 
+function getInitialActiveTab(): ActiveTab {
+  if (typeof window === "undefined") {
+    return "company";
+  }
+
+  try {
+    const savedTab = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+
+    return savedTab === "company" || savedTab === "themes"
+      ? savedTab
+      : "company";
+  } catch {
+    return "company";
+  }
+}
+
 function getResultMeta(result: SearchResult): string {
   const parts = [
     result.ticker,
@@ -45,7 +61,7 @@ function getResultMeta(result: SearchResult): string {
 }
 
 export default function Home(): JSX.Element {
-  const [activeTab, setActiveTab] = useState<ActiveTab>("company");
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => getInitialActiveTab());
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<readonly SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -66,16 +82,6 @@ export default function Home(): JSX.Element {
   const latestAnalysisRequestRef = useRef(0);
 
   useEffect(() => {
-    try {
-      const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-
-      if (savedTab === "company" || savedTab === "themes") {
-        setActiveTab(savedTab);
-      }
-    } catch {
-      // localStorage can fail in private browsing or restricted environments.
-    }
-
     const loadMonitorItems = async (): Promise<void> => {
       try {
         const response = await fetch("/api/monitor");
@@ -254,7 +260,7 @@ export default function Home(): JSX.Element {
     setActiveTab(tab);
 
     try {
-      localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tab);
+      window.localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tab);
     } catch {
       // localStorage can fail in private browsing or restricted environments.
     }
@@ -472,11 +478,10 @@ export default function Home(): JSX.Element {
         >
           <button
             aria-selected={activeTab === "company"}
-            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-              activeTab === "company"
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "company"
                 ? "bg-zinc-800 text-zinc-100"
                 : "text-zinc-500 hover:text-zinc-300"
-            }`}
+              }`}
             onClick={() => {
               handleTabChange("company");
             }}
@@ -487,11 +492,10 @@ export default function Home(): JSX.Element {
           </button>
           <button
             aria-selected={activeTab === "themes"}
-            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-              activeTab === "themes"
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "themes"
                 ? "bg-zinc-800 text-zinc-100"
                 : "text-zinc-500 hover:text-zinc-300"
-            }`}
+              }`}
             onClick={() => {
               handleTabChange("themes");
             }}

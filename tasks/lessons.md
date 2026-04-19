@@ -14,6 +14,8 @@ Review this file at the start of every session.
 ## Log
 (Add entries in reverse chronological order)
 
+- Known-private-company routing must bypass Companies House as well as Finnhub/FMP, and challenger-style JSON generation needs both enough token headroom and explicit truncation diagnostics/repair so dense memos do not collapse into empty arrays.
+- Regression fixes must be verified on the live execution path: parsing needs to handle wrapped model JSON, private-company guards must short-circuit the waterfall before bad market matches run, and persisted UI state must restore before first render when refresh behavior matters.
 - QA regressions clustered around integration seams: model IDs can silently deprecate, backend fields can be generated without UI coverage, and free-tier APIs can reject optional endpoints. Before calling a feature complete, verify model IDs are current, every persisted memo field is rendered where intended, and optional upstream failures degrade to partial coverage instead of breaking the run.
 - Private-company resolution must never rely on loose substring matches. Exact or near-exact name matches must outrank market-cap heuristics, and known private-company queries should reject weak non-US low-cap public listings so fallback research can run.
 - Entity disambiguation must treat unknown 1-2 letter exchange suffixes as Tier 1 by default, and ADR promotion must prefer Tier 0 common-stock listings before any Tier 1 fallback regardless of market cap ordering.

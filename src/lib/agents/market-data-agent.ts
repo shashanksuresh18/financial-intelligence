@@ -48,6 +48,9 @@ const INTERNATIONAL_EXCHANGE_SUFFIXES = new Set([
   'CL',
 ]);
 
+type FinnhubFetchResult = Awaited<ReturnType<typeof fetchFinnhubData>>;
+type FmpFetchResult = Awaited<ReturnType<typeof fetchFmpData>>;
+
 function wrapSource<T>(
   source: DataSource,
   result:
@@ -150,15 +153,39 @@ function buildActiveSources(result: WaterfallResult): readonly DataSource[] {
   ];
 }
 
+function forcePrivateCompanyRoute(query: string): boolean {
+  return isKnownPrivateCompanyQuery(query);
+}
+
+function createSkippedFinnhubResult(query: string): FinnhubFetchResult {
+  return {
+    success: false,
+    error: `Finnhub skipped for known private company "${query}"`,
+  };
+}
+
 export async function runWaterfall(
   input: WaterfallInput
 ): Promise<WaterfallResult> {
-  const finnhubPromise = fetchFinnhubData(input.query);
-  const fmpPromise = fetchFmpData(input.query);
+  const shouldForcePrivateRoute = forcePrivateCompanyRoute(input.query);
+
+  if (shouldForcePrivateRoute) {
+    console.info('[market-data-agent] forcing private-company route', {
+      query: input.query,
+    });
+  }
+
+  const finnhubPromise: Promise<FinnhubFetchResult> = shouldForcePrivateRoute
+    ? Promise.resolve(createSkippedFinnhubResult(input.query))
+    : fetchFinnhubData(input.query);
+  const fmpPromise: Promise<FmpFetchResult | null> = shouldForcePrivateRoute
+    ? Promise.resolve(null)
+    : fetchFmpData(input.query);
   const gleifPromise = fetchGleifData(input.query);
 
   const finnhubResult = await finnhubPromise;
-  const skipCompaniesHouse = shouldSkipCompaniesHouseLookup(finnhubResult);
+  const skipCompaniesHouse =
+    shouldForcePrivateRoute || shouldSkipCompaniesHouseLookup(finnhubResult);
   const tickerHint =
     finnhubResult.success && finnhubResult.data.symbol.trim().length > 0
       ? finnhubResult.data.symbol
@@ -175,7 +202,7 @@ export async function runWaterfall(
   ]);
 
   const finnhub = wrapSource('finnhub', finnhubResult);
-  const fmp = wrapSource('fmp', fmpResult);
+  const fmp = fmpResult === null ? null : wrapSource('fmp', fmpResult);
   const secEdgar = wrapSource('sec-edgar', edgarResult);
   const companiesHouse =
     chResult === null ? null : wrapSource('companies-house', chResult);

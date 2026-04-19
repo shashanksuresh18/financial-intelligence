@@ -4,6 +4,58 @@
 
 Reviewed and confirmed correct. Ready for deployment.
 
+## Fourth Post-QA Verification — Bugs 2 & 3 Confirmed
+
+| Bug | Check | Result |
+|-----|-------|--------|
+| 2 — Challenger token limit | `MAX_TOKENS = 2000` at line 13 of `challenger-agent.ts` | ✓ |
+| 2 — Truncation detection | `TRUNCATION_WARNING_TOKEN_BUFFER`, `isNearMaxTokens`, warning log within 50 tokens of max | ✓ |
+| 2 — JSON repair fallback | `repairTruncatedJsonCandidate`, `buildJsonCandidates`, `parseChallengerResponse` accepts token metadata | ✓ |
+| 3 — Private name override | `getKnownPrivateCompanyCanonicalName` imported and called in `buildEntityResolution`; override fires when `baseCanonicalName` has corporate suffix but query does not | ✓ |
+| Build | `npx tsc --noEmit` | ✓ zero errors |
+| Build | `npm run lint` | ✓ zero warnings |
+| Build | `npm run build` | ✓ production build succeeds |
+| curl SpaceX (forceRefresh) | `canonicalName: "SpaceX"`, `primarySource: null` | ✓ |
+| curl Apple (forceRefresh) | `investmentMemo.stressTest.unstatedAssumptions` has 3 items | ✓ |
+
+**Note**: Tests require `forceRefresh: true` because a stale cached result for SpaceX ("SPACEX LTD") was present from before the fix. With `forceRefresh: true` the fix executes correctly and the override snaps canonical name back to "SpaceX".
+
+## Third Post-QA Fixes — Implemented and Verified
+
+| File | Exact change | Verified |
+|------|--------------|----------|
+| `src/lib/agents/challenger-agent.ts` | Increased `MAX_TOKENS` from `700` to `2000`. Added truncation diagnostics for raw challenger output: chars, output tokens, `stop_reason`, closing-brace check, and the last 100 chars. Added a near-limit warning when output is within 50 tokens of `max_tokens`. `parseChallengerResponse` now accepts token metadata, detects likely truncation, trims to the last complete array element, closes unterminated strings, balances brackets/braces, and retries parsing before falling back to `emptyChallengerReport()`. | `npx tsc --noEmit` ✓, `npm run lint` ✓, `npm run build` ✓. Local transpiled parser verification recovered `3` assumptions / `3` gaps / `2` scenarios from a deliberately truncated JSON payload. |
+| `src/lib/agents/market-data-agent.ts` | Extended the known-private-company route so `shouldForcePrivateRoute` also skips the Companies House leg, not just Finnhub and FMP. This keeps dormant UK registry matches such as `SPACEX LTD` out of the waterfall entirely. | Live local `curl` against `/api/analyze` for `SpaceX` returned `spacexHasCompaniesHouse: false`. |
+| `src/lib/company-search.ts` | Added `KNOWN_PRIVATE_COMPANY_NAMES` and exported `getKnownPrivateCompanyCanonicalName(query)` so canonical-name overrides can reuse the known-private-company list while preserving display capitalization such as `SpaceX`, `OpenAI`, and `xAI`. | Consumed by `entity-agent.ts`; compile/lint/build all passed. |
+| `src/lib/agents/entity-agent.ts` | Added `hasCorporateSuffix()` and a final canonical-name override for known private companies. If resolution ends on a suffix-appended legal entity name while the user query itself did not include a suffix, the canonical name now snaps back to the known private-company name. | Live local `curl` against `/api/analyze` for `SpaceX` returned `canonicalName: "SpaceX"`. |
+| `tasks/lessons.md` | Added a regression-prevention rule covering challenger token ceilings/truncation handling and full private-company waterfall bypasses. | Documentation updated. |
+
+### Verification (third post-QA round)
+
+| Check | Result |
+|-------|--------|
+| `npx tsc --noEmit` | ✓ zero errors |
+| `npm run lint` | ✓ zero warnings |
+| `npm run build` | ✓ production build succeeds |
+| `curl -X POST http://localhost:3000/api/analyze ...SpaceX...` | ✓ `canonicalName: "SpaceX"` and no `companies-house` source in the response |
+| `curl -X POST http://localhost:3000/api/analyze ...Apple...` | Local route execution succeeded, but this sandbox blocks outbound API/Anthropic traffic (`EACCES` / `Connection error`), so live `3/3/2` stress-test counts could not be proven end-to-end here. The challenger parser repair path was validated locally with a truncated JSON payload and recovered `3/3/2`. |
+
+## Second Post-QA Fixes — Reviewed and Verified
+
+| Bug | File(s) | Fix | Verified |
+|-----|---------|-----|---------|
+| 2 — Challenger empty arrays | `challenger-agent.ts` | System prompt: "Respond with ONLY valid JSON…no markdown or prose". `buildJsonCandidates` tries: raw, fence-stripped, regex-extracted fence body, brace-bounded substring. `findChallengerPayload` checks direct keys + snake_case aliases + recursive nested search. `normalizeItems` accepts string items and alternate field names (`description`, `cited_source`, `source`, `level`). `logParsedCounts` logs per-run counts. Raw response logged at `console.log`. | ✓ |
+| 3 — SpaceX private routing | `company-search.ts`, `market-data-agent.ts` | `KNOWN_PRIVATE_COMPANIES` expanded (SpaceX, Stripe, Databricks, Anthropic, OpenAI, xAI, Revolut, Gopuff, Getir, Flink, Brex, Ramp, Deel, Notion, Canva, ByteDance). `forcePrivateCompanyRoute` returns `isKnownPrivateCompanyQuery(query)`. In `runWaterfall`: `finnhubPromise` short-circuits to `createSkippedFinnhubResult`; `fmpPromise` resolves `null` — both before any network call. Log at `console.info` confirms the skip. | ✓ |
+| 6 — Tab persistence on refresh | `page.tsx` | `getInitialActiveTab()` helper with `typeof window === "undefined"` SSR guard; reads `window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY)` with try/catch. `useState<ActiveTab>(() => getInitialActiveTab())` lazy initializer — tab rendered on first paint, no post-mount flash. Write path uses `window.localStorage.setItem`. Key `"fin:activeTab"` consistent on read and write. | ✓ |
+
+### Build verification (second post-QA round)
+
+| Check | Result |
+|-------|--------|
+| `npx tsc --noEmit` | ✓ zero errors |
+| `npm run lint` | ✓ zero warnings |
+| `npm run build` | ✓ production build succeeds |
+
 ## Post-QA Fixes — Reviewed and Verified
 
 | Bug | File(s) | Fix | Verified |

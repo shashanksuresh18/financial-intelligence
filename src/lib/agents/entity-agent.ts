@@ -3,11 +3,12 @@ import type {
   EntityIdentifier,
   EntityResolution,
   WaterfallResult,
-} from "@/lib/types";
+} from '@/lib/types';
+import { getKnownPrivateCompanyCanonicalName } from '@/lib/company-search';
 
 function addEntityIdentifier(
   identifiers: EntityIdentifier[],
-  identifier: EntityIdentifier | null,
+  identifier: EntityIdentifier | null
 ): void {
   if (identifier === null) {
     return;
@@ -17,7 +18,7 @@ function addEntityIdentifier(
     (item) =>
       item.label === identifier.label &&
       item.value === identifier.value &&
-      item.source === identifier.source,
+      item.source === identifier.source
   );
 
   if (!duplicate) {
@@ -28,8 +29,8 @@ function addEntityIdentifier(
 function normalizeEntityName(value: string): string {
   return value
     .toUpperCase()
-    .normalize("NFKC")
-    .replace(/[^A-Z0-9]+/g, " ")
+    .normalize('NFKC')
+    .replace(/[^A-Z0-9]+/g, ' ')
     .trim();
 }
 
@@ -37,11 +38,25 @@ function hasUkLegalSuffix(value: string): boolean {
   const normalized = normalizeEntityName(value);
 
   return (
-    normalized.endsWith(" PLC") ||
-    normalized.endsWith(" LTD") ||
-    normalized.endsWith(" LIMITED") ||
-    normalized.endsWith(" LLP") ||
-    normalized.endsWith(" LP")
+    normalized.endsWith(' PLC') ||
+    normalized.endsWith(' LTD') ||
+    normalized.endsWith(' LIMITED') ||
+    normalized.endsWith(' LLP') ||
+    normalized.endsWith(' LP')
+  );
+}
+
+function hasCorporateSuffix(value: string): boolean {
+  const normalized = normalizeEntityName(value);
+
+  return (
+    hasUkLegalSuffix(value) ||
+    normalized.endsWith(' LLC') ||
+    normalized.endsWith(' INC') ||
+    normalized.endsWith(' INCORPORATED') ||
+    normalized.endsWith(' CORP') ||
+    normalized.endsWith(' CORPORATION') ||
+    normalized.endsWith(' CO')
   );
 }
 
@@ -70,7 +85,7 @@ function shouldUseCompaniesHouseCorroboration(params: {
     return false;
   }
 
-  if (companiesHouseCompany.company_status.toLowerCase() !== "active") {
+  if (companiesHouseCompany.company_status.toLowerCase() !== 'active') {
     return false;
   }
 
@@ -83,7 +98,7 @@ function shouldUseCompaniesHouseCorroboration(params: {
 
 export function buildEntityResolution(
   query: string,
-  result: WaterfallResult,
+  result: WaterfallResult
 ): EntityResolution {
   const secName =
     result.secEdgar?.data.companyInfo?.name ??
@@ -102,124 +117,132 @@ export function buildEntityResolution(
     ? rawCompaniesHouseCompany
     : null;
 
-  const canonicalName =
+  const baseCanonicalName =
     secName ??
     finnhubName ??
     companiesHouseCompany?.company_name ??
     gleifName ??
     query;
+  const knownPrivateCanonicalName = getKnownPrivateCompanyCanonicalName(query);
+  const canonicalName =
+    knownPrivateCanonicalName !== null &&
+    hasCorporateSuffix(baseCanonicalName) &&
+    !hasCorporateSuffix(query)
+      ? knownPrivateCanonicalName
+      : baseCanonicalName;
   const primarySource: DataSource | null =
     secName !== null
-      ? "sec-edgar"
+      ? 'sec-edgar'
       : finnhubName !== null
-        ? "finnhub"
+        ? 'finnhub'
         : companiesHouseCompany !== null
-          ? "companies-house"
+          ? 'companies-house'
           : gleifName !== null
-            ? "gleif"
+            ? 'gleif'
             : finnhubSymbol !== null
-              ? "finnhub"
+              ? 'finnhub'
               : result.claudeFallback !== null
-                ? "claude-fallback"
+                ? 'claude-fallback'
                 : null;
 
   const identifiers: EntityIdentifier[] = [];
 
   addEntityIdentifier(identifiers, {
-    label: "Canonical Name",
+    label: 'Canonical Name',
     value: canonicalName,
-    source: primarySource ?? "claude-fallback",
+    source: primarySource ?? 'claude-fallback',
   });
 
   if (result.secEdgar?.data.companyInfo?.tickers.length) {
     for (const ticker of result.secEdgar.data.companyInfo.tickers.slice(0, 2)) {
       addEntityIdentifier(identifiers, {
-        label: "Ticker",
+        label: 'Ticker',
         value: ticker,
-        source: "sec-edgar",
+        source: 'sec-edgar',
       });
     }
   } else if (finnhubSymbol !== null) {
     addEntityIdentifier(identifiers, {
-      label: "Ticker",
+      label: 'Ticker',
       value: finnhubSymbol,
-      source: "finnhub",
+      source: 'finnhub',
     });
   }
 
   if (result.secEdgar?.data.cik) {
     addEntityIdentifier(identifiers, {
-      label: "CIK",
+      label: 'CIK',
       value: result.secEdgar.data.cik,
-      source: "sec-edgar",
+      source: 'sec-edgar',
     });
   }
 
   if (result.secEdgar?.data.companyInfo?.exchanges.length) {
     addEntityIdentifier(identifiers, {
-      label: "Exchange",
-      value: result.secEdgar.data.companyInfo.exchanges.join(", "),
-      source: "sec-edgar",
+      label: 'Exchange',
+      value: result.secEdgar.data.companyInfo.exchanges.join(', '),
+      source: 'sec-edgar',
     });
   }
 
   if (companiesHouseCompany !== null) {
     addEntityIdentifier(identifiers, {
-      label: "Company Number",
+      label: 'Company Number',
       value: companiesHouseCompany.company_number,
-      source: "companies-house",
+      source: 'companies-house',
     });
     addEntityIdentifier(identifiers, {
-      label: "Status",
+      label: 'Status',
       value: companiesHouseCompany.company_status,
-      source: "companies-house",
+      source: 'companies-house',
     });
 
     const jurisdiction =
-      companiesHouseCompany.registered_office_address.country ?? "United Kingdom";
+      companiesHouseCompany.registered_office_address.country ??
+      'United Kingdom';
 
     addEntityIdentifier(identifiers, {
-      label: "Jurisdiction",
+      label: 'Jurisdiction',
       value: jurisdiction,
-      source: "companies-house",
+      source: 'companies-house',
     });
   }
 
   if (gleifRecord !== null) {
     addEntityIdentifier(identifiers, {
-      label: "LEI",
+      label: 'LEI',
       value: gleifRecord.attributes.lei,
-      source: "gleif",
+      source: 'gleif',
     });
     addEntityIdentifier(identifiers, {
-      label: "Jurisdiction",
+      label: 'Jurisdiction',
       value: gleifRecord.attributes.entity.jurisdiction,
-      source: "gleif",
+      source: 'gleif',
     });
     addEntityIdentifier(identifiers, {
-      label: "Status",
+      label: 'Status',
       value: gleifRecord.attributes.registration.status,
-      source: "gleif",
+      source: 'gleif',
     });
   }
 
   const matchedSources = [...new Set(identifiers.map((item) => item.source))];
   const note =
-    primarySource === "sec-edgar"
+    primarySource === 'sec-edgar'
       ? matchedSources.length > 1
-        ? "Resolved against SEC EDGAR with corroborating market and registry identifiers."
-        : "Resolved primarily from SEC EDGAR filing metadata."
-      : primarySource === "finnhub"
+        ? 'Resolved against SEC EDGAR with corroborating market and registry identifiers.'
+        : 'Resolved primarily from SEC EDGAR filing metadata.'
+      : primarySource === 'finnhub'
         ? companiesHouseCompany !== null || gleifRecord !== null
-          ? "Resolved through market-symbol mapping with secondary registry corroboration."
-          : "Resolved through market-symbol mapping; filing and registry corroboration are limited."
-        : primarySource === "companies-house"
+          ? 'Resolved through market-symbol mapping with secondary registry corroboration.'
+          : 'Resolved through market-symbol mapping; filing and registry corroboration are limited.'
+        : primarySource === 'companies-house'
           ? gleifRecord !== null
-            ? "Resolved through UK registry records with LEI corroboration."
-            : "Resolved through Companies House registry records."
-          : primarySource === "gleif"
-            ? "Resolved through LEI registry data with limited filing corroboration."
-            : "Resolution depends primarily on the original query and fallback evidence.";
+            ? 'Resolved through UK registry records with LEI corroboration.'
+            : 'Resolved through Companies House registry records.'
+          : primarySource === 'gleif'
+            ? 'Resolved through LEI registry data with limited filing corroboration.'
+            : 'Resolution depends primarily on the original query and fallback evidence.';
 
   return {
     displayName: canonicalName,
