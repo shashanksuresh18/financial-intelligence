@@ -3,10 +3,12 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 
 import ActiveSnapshotPanel from "@/components/ActiveSnapshotPanel";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import MonitorList from "@/components/MonitorList";
 import Report from "@/components/Report";
 import SearchBar from "@/components/SearchBar";
 import ThemePanel from "@/components/ThemePanel";
+import { DEMO_COMPANIES } from "@/lib/demo-names";
 import type {
   AnalysisReport,
   AnalyzeApiResponse,
@@ -29,6 +31,8 @@ const ANALYSIS_STAGE_MESSAGES = [
 
 type MonitorSortKey = "confidence" | "freshness" | "evidence-depth";
 type ActiveTab = "company" | "themes";
+
+const ACTIVE_TAB_STORAGE_KEY = "fin:activeTab";
 
 function getResultMeta(result: SearchResult): string {
   const parts = [
@@ -62,6 +66,16 @@ export default function Home(): JSX.Element {
   const latestAnalysisRequestRef = useRef(0);
 
   useEffect(() => {
+    try {
+      const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+
+      if (savedTab === "company" || savedTab === "themes") {
+        setActiveTab(savedTab);
+      }
+    } catch {
+      // localStorage can fail in private browsing or restricted environments.
+    }
+
     const loadMonitorItems = async (): Promise<void> => {
       try {
         const response = await fetch("/api/monitor");
@@ -199,6 +213,11 @@ export default function Home(): JSX.Element {
         return;
       }
 
+      if (response.status === 429) {
+        setError("Hit rate limit. Please wait a minute and try again.");
+        return;
+      }
+
       if (!response.ok || !data.ok || !data.report) {
         setError(data.error ?? "Analysis failed");
         return;
@@ -228,6 +247,16 @@ export default function Home(): JSX.Element {
           analysisAbortRef.current = null;
         }
       }
+    }
+  };
+
+  const handleTabChange = (tab: ActiveTab): void => {
+    setActiveTab(tab);
+
+    try {
+      localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tab);
+    } catch {
+      // localStorage can fail in private browsing or restricted environments.
     }
   };
 
@@ -293,7 +322,7 @@ export default function Home(): JSX.Element {
   };
 
   const handleThemeCompanySelect = (companyName: string): void => {
-    setActiveTab("company");
+    handleTabChange("company");
     setQuery(companyName);
     setError(null);
     void runAnalysis(companyName);
@@ -391,6 +420,7 @@ export default function Home(): JSX.Element {
   })();
 
   const loadedReportLabel = reportQuery ?? report?.company ?? null;
+  const trimmedQuery = query.trim();
 
   const showSearchResults = searchResults.length > 0;
   const hasReport = report !== null || isAnalyzing;
@@ -448,7 +478,7 @@ export default function Home(): JSX.Element {
                 : "text-zinc-500 hover:text-zinc-300"
             }`}
             onClick={() => {
-              setActiveTab("company");
+              handleTabChange("company");
             }}
             role="tab"
             type="button"
@@ -463,7 +493,7 @@ export default function Home(): JSX.Element {
                 : "text-zinc-500 hover:text-zinc-300"
             }`}
             onClick={() => {
-              setActiveTab("themes");
+              handleTabChange("themes");
             }}
             role="tab"
             type="button"
@@ -501,19 +531,40 @@ export default function Home(): JSX.Element {
                   </div>
 
                   <div className="mt-4 flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
-                    <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
-                      Debounced live search
-                    </span>
-                    <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
-                      {query.trim().length >= MIN_QUERY_LENGTH
-                        ? `${searchResults.length} candidate matches`
-                        : "Type at least 2 characters"}
-                    </span>
-                    {isSearching ? (
-                      <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-200">
-                        Searching live sources
-                      </span>
-                    ) : null}
+                    {trimmedQuery.length === 0 && !isAnalyzing ? (
+                      <>
+                        <span className="mr-1 text-zinc-600">Try:</span>
+                        {DEMO_COMPANIES.map((name) => (
+                          <button
+                            className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-zinc-400 transition hover:border-emerald-400/25 hover:text-emerald-200"
+                            key={name}
+                            onClick={() => {
+                              setQuery(name);
+                              void runAnalysis(name);
+                            }}
+                            type="button"
+                          >
+                            {name}
+                          </button>
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
+                          Debounced live search
+                        </span>
+                        <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
+                          {trimmedQuery.length >= MIN_QUERY_LENGTH
+                            ? `${searchResults.length} candidate matches`
+                            : "Type at least 2 characters"}
+                        </span>
+                        {isSearching ? (
+                          <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-200">
+                            Searching live sources
+                          </span>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -537,7 +588,7 @@ export default function Home(): JSX.Element {
                         Live query
                       </p>
                       <p className="mt-1 text-sm text-zinc-300">
-                        {query.trim().length > 0 ? query.trim() : "None"}
+                        {trimmedQuery.length > 0 ? trimmedQuery : "None"}
                       </p>
                       <p className="mt-3 text-xs uppercase tracking-[0.18em] text-zinc-500">
                         Loaded report
@@ -613,11 +664,13 @@ export default function Home(): JSX.Element {
                 ) : null}
 
                 {report ? (
-                  <Report
-                    isRefreshing={isAnalyzing}
-                    onRefresh={handleRefresh}
-                    report={report}
-                  />
+                  <ErrorBoundary section="Report">
+                    <Report
+                      isRefreshing={isAnalyzing}
+                      onRefresh={handleRefresh}
+                      report={report}
+                    />
+                  </ErrorBoundary>
                 ) : isAnalyzing ? (
                   <section className="rounded-[2rem] border border-zinc-800 bg-zinc-950/60 px-6 py-8 shadow-[0_24px_80px_-48px_rgba(0,0,0,0.95)]">
                     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
@@ -693,7 +746,9 @@ export default function Home(): JSX.Element {
             </section>
           </>
         ) : (
-          <ThemePanel onCompanySelect={handleThemeCompanySelect} />
+          <ErrorBoundary section="ThemePanel">
+            <ThemePanel onCompanySelect={handleThemeCompanySelect} />
+          </ErrorBoundary>
         )}
       </div>
     </main>

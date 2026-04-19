@@ -1,10 +1,10 @@
-import Exa from "exa-js";
+import Exa, { type DeepOutputSchema } from "exa-js";
 import type { ApiResult, ExaDeepData } from "@/lib/types";
 
 const EXA_API_KEY = process.env.EXA_API_KEY?.trim() ?? "";
 const exa = EXA_API_KEY.length > 0 ? new Exa(EXA_API_KEY) : null;
 
-const EXA_OUTPUT_SCHEMA: Record<string, unknown> = {
+const EXA_OUTPUT_SCHEMA = {
   type: "object",
   properties: {
     companyName: {
@@ -62,7 +62,7 @@ const EXA_OUTPUT_SCHEMA: Record<string, unknown> = {
     "competitors",
     "recentNews",
   ],
-};
+} satisfies DeepOutputSchema;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -121,6 +121,24 @@ function normalizeExaDeepData(value: unknown): ExaDeepData | null {
   };
 }
 
+function parseStructuredContent(content: unknown): Record<string, unknown> | null {
+  if (isRecord(content)) {
+    return content;
+  }
+
+  if (typeof content !== "string") {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(content) as unknown;
+
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchExaDeepData(
   query: string,
 ): Promise<ApiResult<ExaDeepData>> {
@@ -132,36 +150,22 @@ export async function fetchExaDeepData(
   }
 
   try {
-    const instructions =
+    const queryString =
       `Research the company "${query}". Provide a structured overview covering: ` +
       `business model and current scale, estimated revenue, total funding raised, ` +
       `last known valuation, founded year, headquarters, key investors, main competitors, ` +
       `and recent notable news or developments.`;
-
-    const created = await exa.research.create({
-      instructions,
+    // The original research.create/poll flow is preserved in git history and can be restored if
+    // private-company output quality regresses for cases like SpaceX.
+    const searchResult = await exa.search(queryString, {
+      type: "deep",
       outputSchema: EXA_OUTPUT_SCHEMA,
     });
-
-    const result = await exa.research.pollUntilFinished(created.researchId);
-
-    if (result.status !== "completed") {
-      const detail =
-        result.status === "failed" && "error" in result
-          ? `: ${String((result as { error: string }).error)}`
-          : "";
-      return {
-        success: false,
-        error: `exa research ${result.status}${detail}`,
-      };
-    }
-
-    const completedResult = result as {
-      output: { content: string; parsed?: Record<string, unknown> };
-    };
-    const parsed = completedResult.output.parsed ?? null;
+    const parsed = parseStructuredContent(searchResult.output?.content);
 
     if (parsed === null) {
+      console.error("[exa-deep] output missing or unparseable", { query });
+
       return {
         success: false,
         error: "exa output missing required fields",

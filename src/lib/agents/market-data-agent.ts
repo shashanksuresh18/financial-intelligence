@@ -6,49 +6,53 @@ import type {
   FinancialMetric,
   WaterfallInput,
   WaterfallResult,
-} from "@/lib/types";
-import { fetchClaudeFallbackData } from "@/lib/datasources/claude-fallback";
-import { fetchCompaniesHouseData } from "@/lib/datasources/companies-house";
-import { fetchExaDeepData } from "@/lib/datasources/exa-deep";
-import { fetchFinnhubData } from "@/lib/datasources/finnhub";
-import { fetchFmpData } from "@/lib/datasources/fmp";
-import { fetchGleifData } from "@/lib/datasources/gleif";
-import { fetchSecEdgarData } from "@/lib/datasources/sec-edgar";
+} from '@/lib/types';
+import {
+  hasStrongCompanyNameMatch,
+  isKnownPrivateCompanyQuery,
+} from '@/lib/company-search';
+import { fetchClaudeFallbackData } from '@/lib/datasources/claude-fallback';
+import { fetchCompaniesHouseData } from '@/lib/datasources/companies-house';
+import { fetchExaDeepData } from '@/lib/datasources/exa-deep';
+import { fetchFinnhubData } from '@/lib/datasources/finnhub';
+import { fetchFmpData } from '@/lib/datasources/fmp';
+import { fetchGleifData } from '@/lib/datasources/gleif';
+import { fetchSecEdgarData } from '@/lib/datasources/sec-edgar';
 
 const CH_SKIP_MCAP_THRESHOLD_USDm = 50_000;
 const INTERNATIONAL_EXCHANGE_SUFFIXES = new Set([
-  "L",
-  "AS",
-  "PA",
-  "DE",
-  "MI",
-  "ST",
-  "CO",
-  "HE",
-  "VX",
-  "NS",
-  "BO",
-  "KS",
-  "KQ",
-  "AX",
-  "NZ",
-  "HK",
-  "T",
-  "TW",
-  "SI",
-  "PR",
-  "WS",
-  "U",
-  "W",
-  "RT",
-  "CL",
+  'L',
+  'AS',
+  'PA',
+  'DE',
+  'MI',
+  'ST',
+  'CO',
+  'HE',
+  'VX',
+  'NS',
+  'BO',
+  'KS',
+  'KQ',
+  'AX',
+  'NZ',
+  'HK',
+  'T',
+  'TW',
+  'SI',
+  'PR',
+  'WS',
+  'U',
+  'W',
+  'RT',
+  'CL',
 ]);
 
 function wrapSource<T>(
   source: DataSource,
   result:
     | { readonly success: true; readonly data: T }
-    | { readonly success: false; readonly error: string },
+    | { readonly success: false; readonly error: string }
 ): DataSourceResult<T> | null {
   if (!result.success) {
     return null;
@@ -62,7 +66,7 @@ function wrapSource<T>(
 }
 
 function isUsPrimaryListingSymbol(symbol: string): boolean {
-  const suffixSegments = symbol.toUpperCase().split(".").slice(1);
+  const suffixSegments = symbol.toUpperCase().split('.').slice(1);
   const primarySuffix = suffixSegments[0] ?? null;
 
   if (primarySuffix === null) {
@@ -77,7 +81,7 @@ function isUsPrimaryListingSymbol(symbol: string): boolean {
 }
 
 function shouldSkipCompaniesHouseLookup(
-  finnhubResult: Awaited<ReturnType<typeof fetchFinnhubData>>,
+  finnhubResult: Awaited<ReturnType<typeof fetchFinnhubData>>
 ): boolean {
   if (!finnhubResult.success) {
     return false;
@@ -94,14 +98,15 @@ function shouldSkipCompaniesHouseLookup(
   return (
     !isAmbiguous &&
     isUsPrimaryListingSymbol(symbol) &&
-    symbolType?.trim().toLowerCase() === "common stock" &&
+    symbolType?.trim().toLowerCase() === 'common stock' &&
     marketCap > CH_SKIP_MCAP_THRESHOLD_USDm
   );
 }
 
 function isLikelyPrivate(
+  query: string,
   finnhubResult: Awaited<ReturnType<typeof fetchFinnhubData>>,
-  fmpResult: DataSourceResult<FmpData> | null,
+  fmpResult: DataSourceResult<FmpData> | null
 ): boolean {
   // A symbol with no quote and no basic financials is a false-match or inaccessible listing.
   const noFinnhubTicker =
@@ -117,24 +122,36 @@ function isLikelyPrivate(
       fmpResult.data.enterpriseValues.length === 0 &&
       fmpResult.data.analystEstimates.length === 0 &&
       fmpResult.data.priceTargetConsensus === null);
+  const hasStrongFinnhubMatch =
+    finnhubResult.success &&
+    finnhubResult.data.companyName !== null &&
+    hasStrongCompanyNameMatch(query, finnhubResult.data.companyName);
+  const hasStrongFmpMatch =
+    fmpResult !== null &&
+    fmpResult.data.companyName !== null &&
+    hasStrongCompanyNameMatch(query, fmpResult.data.companyName);
+  const shouldForcePrivateFallback =
+    isKnownPrivateCompanyQuery(query) &&
+    !hasStrongFinnhubMatch &&
+    !hasStrongFmpMatch;
 
-  return noFinnhubTicker && noFmpFinancials;
+  return shouldForcePrivateFallback || (noFinnhubTicker && noFmpFinancials);
 }
 
 function buildActiveSources(result: WaterfallResult): readonly DataSource[] {
   return [
-    ...(result.finnhub !== null ? (["finnhub"] as const) : []),
-    ...(result.fmp !== null ? (["fmp"] as const) : []),
-    ...(result.secEdgar !== null ? (["sec-edgar"] as const) : []),
-    ...(result.companiesHouse !== null ? (["companies-house"] as const) : []),
-    ...(result.gleif !== null ? (["gleif"] as const) : []),
-    ...(result.exaDeep !== null ? (["exa-deep"] as const) : []),
-    ...(result.claudeFallback !== null ? (["claude-fallback"] as const) : []),
+    ...(result.finnhub !== null ? (['finnhub'] as const) : []),
+    ...(result.fmp !== null ? (['fmp'] as const) : []),
+    ...(result.secEdgar !== null ? (['sec-edgar'] as const) : []),
+    ...(result.companiesHouse !== null ? (['companies-house'] as const) : []),
+    ...(result.gleif !== null ? (['gleif'] as const) : []),
+    ...(result.exaDeep !== null ? (['exa-deep'] as const) : []),
+    ...(result.claudeFallback !== null ? (['claude-fallback'] as const) : []),
   ];
 }
 
 export async function runWaterfall(
-  input: WaterfallInput,
+  input: WaterfallInput
 ): Promise<WaterfallResult> {
   const finnhubPromise = fetchFinnhubData(input.query);
   const fmpPromise = fetchFmpData(input.query);
@@ -157,16 +174,19 @@ export async function runWaterfall(
     fmpPromise,
   ]);
 
-  const finnhub = wrapSource("finnhub", finnhubResult);
-  const fmp = wrapSource("fmp", fmpResult);
-  const secEdgar = wrapSource("sec-edgar", edgarResult);
+  const finnhub = wrapSource('finnhub', finnhubResult);
+  const fmp = wrapSource('fmp', fmpResult);
+  const secEdgar = wrapSource('sec-edgar', edgarResult);
   const companiesHouse =
-    chResult === null ? null : wrapSource("companies-house", chResult);
-  const gleif = wrapSource("gleif", gleifResult);
-  const exaDeep: DataSourceResult<ExaDeepData> | null =
-    isLikelyPrivate(finnhubResult, fmp)
-      ? wrapSource("exa-deep", await fetchExaDeepData(input.query))
-      : null;
+    chResult === null ? null : wrapSource('companies-house', chResult);
+  const gleif = wrapSource('gleif', gleifResult);
+  const exaDeep: DataSourceResult<ExaDeepData> | null = isLikelyPrivate(
+    input.query,
+    finnhubResult,
+    fmp
+  )
+    ? wrapSource('exa-deep', await fetchExaDeepData(input.query))
+    : null;
 
   const anyData =
     finnhub !== null ||
@@ -188,9 +208,9 @@ export async function runWaterfall(
   }> | null = null;
 
   if (!anyData || shouldSupplementWithClaude) {
-    console.error("[analyzer] running Claude fallback", {
+    console.error('[analyzer] running Claude fallback', {
       query: input.query,
-      mode: anyData ? "supplement" : "all-sources-failed",
+      mode: anyData ? 'supplement' : 'all-sources-failed',
     });
 
     const fallbackResult = await fetchClaudeFallbackData(input.query, {
@@ -214,7 +234,7 @@ export async function runWaterfall(
       lei: gleif?.data.record?.id ?? undefined,
     });
 
-    claudeFallback = wrapSource("claude-fallback", fallbackResult);
+    claudeFallback = wrapSource('claude-fallback', fallbackResult);
   }
 
   const baseResult: WaterfallResult = {

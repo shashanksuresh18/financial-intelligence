@@ -28,7 +28,11 @@ export async function POST(
 
     if (result.companies.length === 0 && result.themeDescription.length === 0) {
       return NextResponse.json(
-        { ok: false, error: "No data found for this theme" },
+        {
+          ok: false,
+          error:
+            "No companies found for this theme. Try a broader search or check the spelling.",
+        },
         { status: 422 },
       );
     }
@@ -38,7 +42,11 @@ export async function POST(
     console.error("[themes] route error", { theme, error });
 
     return NextResponse.json(
-      { ok: false, error: "Theme service unavailable" },
+      {
+        ok: false,
+        error:
+          "Unable to load theme data. Please try again or check your connection.",
+      },
       { status: 500 },
     );
   }

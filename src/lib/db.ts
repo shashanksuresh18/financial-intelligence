@@ -147,7 +147,7 @@ function resolveDatabasePath(databaseUrl: string): string | null {
 
   const relativePath = databaseUrl.slice("file:".length).replace(/^\.[\\/]/, "");
 
-  return path.resolve(process.cwd(), relativePath);
+  return path.resolve(/* turbopackIgnore: true */ process.cwd(), relativePath);
 }
 
 function sqlString(value: string): string {
@@ -209,7 +209,7 @@ function activateMemoryStorage(reason: string, error?: unknown): void {
 
 function execSqlite(args: readonly string[], sql?: string): string {
   return execFileSync(SQLITE_BINARY, [...args], {
-    cwd: process.cwd(),
+    cwd: /* turbopackIgnore: true */ process.cwd(),
     encoding: "utf8",
     ...(sql !== undefined ? { input: sql } : {}),
   });

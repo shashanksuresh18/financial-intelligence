@@ -3,6 +3,7 @@
 import type { FormEvent, JSX } from "react";
 import { useEffect, useState } from "react";
 
+import { DEMO_THEMES } from "@/lib/demo-names";
 import type { ThemeApiResponse, ThemeCompany, ThemeResult } from "@/lib/types";
 
 type ThemePanelProps = {
@@ -189,14 +190,24 @@ export function ThemePanel({ onCompanySelect }: ThemePanelProps): JSX.Element {
       });
       const data = (await response.json()) as ThemeApiResponse;
 
+      if (response.status === 429) {
+        setError("Hit rate limit. Please wait a minute and try again.");
+        return;
+      }
+
+      if (response.status === 408 || response.status === 504) {
+        setError("Request timed out. Exa Deep can take 15 seconds - please wait and retry.");
+        return;
+      }
+
       if (!response.ok || !data.ok || data.result === undefined) {
-        setError(data.error ?? "Theme exploration failed");
+        setError(data.error ?? "Theme exploration failed. Please try again.");
         return;
       }
 
       setResult(data.result);
     } catch {
-      setError("Theme exploration failed");
+      setError("Theme exploration failed. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -423,6 +434,25 @@ export function ThemePanel({ onCompanySelect }: ThemePanelProps): JSX.Element {
               The resulting company map is designed to hand you directly into the
               existing Company workflow when a name looks worth deeper diligence.
             </p>
+            <div className="mt-6 flex flex-wrap gap-2">
+              <span className="w-full text-xs uppercase tracking-[0.18em] text-zinc-600">
+                Try a starter theme:
+              </span>
+              {DEMO_THEMES.map((theme) => (
+                <button
+                  className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-zinc-400 transition hover:border-emerald-400/25 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isLoading}
+                  key={theme}
+                  onClick={() => {
+                    setThemeQuery(theme);
+                    void handleExplore(theme);
+                  }}
+                  type="button"
+                >
+                  {theme}
+                </button>
+              ))}
+            </div>
           </section>
         )}
       </div>

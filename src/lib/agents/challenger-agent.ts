@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic from '@anthropic-ai/sdk';
 
 import type {
   ChallengerItem,
@@ -7,12 +7,12 @@ import type {
   ValidationReport,
   ValidationSeverity,
   WaterfallResult,
-} from "@/lib/types";
+} from '@/lib/types';
 
-const MODEL = "claude-3-5-haiku-20241022";
+const MODEL = 'claude-haiku-4-5';
 const MAX_TOKENS = 700;
 const SYSTEM_PROMPT =
-  "You are a skeptical senior risk analyst at a private equity firm. Your role is to stress-test investment memos by surfacing unstated assumptions, understated evidence gaps, and plausible bear scenarios that the memo writer may have missed or glossed over. Be precise, direct, and always cite which data source (or its absence) grounds your concern.";
+  'You are a skeptical senior risk analyst at a private equity firm. Your role is to stress-test investment memos by surfacing unstated assumptions, understated evidence gaps, and plausible bear scenarios that the memo writer may have missed or glossed over. Be precise, direct, and always cite which data source (or its absence) grounds your concern.';
 
 type ChallengerAgentInput = {
   readonly company: string;
@@ -24,9 +24,9 @@ type ChallengerAgentInput = {
 function formatDraftMemo(memo: InvestmentMemo): string {
   const keyRisks =
     memo.keyRisks.length === 0
-      ? ["- None"]
+      ? ['- None']
       : memo.keyRisks.map(
-          (item) => `- [${item.category}] ${item.title}: ${item.detail}`,
+          (item) => `- [${item.category}] ${item.title}: ${item.detail}`
         );
 
   return [
@@ -38,40 +38,40 @@ function formatDraftMemo(memo: InvestmentMemo): string {
     `Upside case: ${memo.upsideCase}`,
     `Downside case: ${memo.downsideCase}`,
     `Key disqualifier: ${memo.keyDisqualifier}`,
-    "Key risks:",
+    'Key risks:',
     ...keyRisks,
-  ].join("\n");
+  ].join('\n');
 }
 
 function formatValidationSummary(validationReport: ValidationReport): string {
   const tensions =
     validationReport.tensions.length === 0
-      ? ["- None"]
+      ? ['- None']
       : validationReport.tensions.map(
-          (item) => `- ${item.check} (${item.severity}): ${item.detail}`,
+          (item) => `- ${item.check} (${item.severity}): ${item.detail}`
         );
   const gaps =
     validationReport.gaps.length === 0
-      ? ["- None"]
+      ? ['- None']
       : validationReport.gaps.map(
-          (item) => `- ${item.gap} (${item.severity}): ${item.detail}`,
+          (item) => `- ${item.gap} (${item.severity}): ${item.detail}`
         );
 
   return [
     `Coverage: ${validationReport.coverageLabel}`,
     `Data quality score: ${validationReport.dataQualityScore}/100`,
-    "Tensions:",
+    'Tensions:',
     ...tensions,
-    "Gaps:",
+    'Gaps:',
     ...gaps,
-  ].join("\n");
+  ].join('\n');
 }
 
 function buildChallengerPrompt(input: ChallengerAgentInput): string {
   const activeSources =
     input.waterfallResult.activeSources.length > 0
-      ? input.waterfallResult.activeSources.join(", ")
-      : "none";
+      ? input.waterfallResult.activeSources.join(', ')
+      : 'none';
 
   return `DRAFT MEMO for ${input.company}:
 ${formatDraftMemo(input.draftMemo)}
@@ -111,23 +111,26 @@ Respond ONLY with valid JSON matching this exact schema (no markdown fences, no 
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function coerceSeverity(value: unknown): ValidationSeverity {
-  return value === "high" || value === "medium" || value === "low"
+  return value === 'high' || value === 'medium' || value === 'low'
     ? value
-    : "medium";
+    : 'medium';
 }
 
-function normalizeItems(value: unknown, limit: number): readonly ChallengerItem[] {
+function normalizeItems(
+  value: unknown,
+  limit: number
+): readonly ChallengerItem[] {
   if (!Array.isArray(value)) {
     return [];
   }
 
   return value
     .map((item) => {
-      if (!isRecord(item) || typeof item.claim !== "string") {
+      if (!isRecord(item) || typeof item.claim !== 'string') {
         return null;
       }
 
@@ -138,9 +141,10 @@ function normalizeItems(value: unknown, limit: number): readonly ChallengerItem[
       }
 
       const citedSource =
-        typeof item.citedSource === "string" && item.citedSource.trim().length > 0
+        typeof item.citedSource === 'string' &&
+        item.citedSource.trim().length > 0
           ? item.citedSource.trim()
-          : "none";
+          : 'none';
 
       return {
         claim,
@@ -187,7 +191,7 @@ function emptyChallengerReport(): ChallengerReport {
 }
 
 export async function runChallengerAgent(
-  input: ChallengerAgentInput,
+  input: ChallengerAgentInput
 ): Promise<ChallengerReport> {
   try {
     const client = new Anthropic();
@@ -197,19 +201,19 @@ export async function runChallengerAgent(
       system: SYSTEM_PROMPT,
       messages: [
         {
-          role: "user",
+          role: 'user',
           content: buildChallengerPrompt(input),
         },
       ],
     });
     const raw = response.content
-      .filter((block) => block.type === "text")
+      .filter((block) => block.type === 'text')
       .map((block) => block.text)
-      .join("")
+      .join('')
       .trim();
     const parsed = parseChallengerResponse(raw);
 
-    console.info("[challenger-agent] succeeded", {
+    console.info('[challenger-agent] succeeded', {
       company: input.company,
       model: MODEL,
       assumptionCount: parsed?.unstatedAssumptions.length ?? 0,
@@ -219,7 +223,7 @@ export async function runChallengerAgent(
 
     return parsed ?? emptyChallengerReport();
   } catch (error: unknown) {
-    console.error("[challenger-agent] failed", {
+    console.error('[challenger-agent] failed', {
       company: input.company,
       error: String(error),
     });

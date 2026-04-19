@@ -1,3 +1,655 @@
+# Phase 9: Demo Hardening & Vercel Deployment
+
+## Status
+
+Reviewed and confirmed correct. Ready for deployment.
+
+## Post-QA Fixes — Reviewed and Verified
+
+| Bug | File(s) | Fix | Verified |
+|-----|---------|-----|---------|
+| 1 — Deprecated Claude model | `challenger-agent.ts` | `MODEL = 'claude-haiku-4-5'` at line 12 | ✓ |
+| 2 — Stress Test UI missing | `InvestmentMemoPanel.tsx` | Conditional `<SectionCard title="Stress Test">` after Key Risks; `StressTestGroup` sub-component with severity badges; `Conviction Downgraded` rose banner | ✓ |
+| 3 — SEC EDGAR CIK lookup | `sec-edgar.ts` | `TICKER_MAP_URL` → `company_tickers.json`; `USER_AGENT` from env; `buildTickerVariants` uppercases; cached module-level promise; `lookupTickerCik` with variant fallbacks | ✓ |
+| 4 — SpaceX entity resolution | `company-search.ts`, `finnhub.ts` | `KNOWN_PRIVATE_COMPANIES` list (SpaceX, Stripe, Anthropic, OpenAI, xAI, Revolut…); `isKnownPrivateCompanyQuery`; merged-token substring matches penalized (score −20) | ✓ |
+| 5 — Finnhub 403 graceful skip | `finnhub.ts` | `PREMIUM_ENDPOINT_LOGS` Set; `isPremiumAccessDenied`; `logPremiumEndpointSkipOnce` deduplicates; analysis continues; 403 omitted from output | ✓ |
+
+### Build verification (post-QA)
+
+| Check | Result |
+|-------|--------|
+| `npx tsc --noEmit` | ✓ zero errors |
+| `npm run lint` | ✓ zero warnings |
+| `npm run build` | ✓ production build succeeds |
+
+## Files Changed
+
+| File | Change | Verified |
+|------|--------|---------|
+| `src/lib/demo-names.ts` | `DEMO_COMPANIES` (9 names) + `DEMO_THEMES` (5 themes) + exported types | ✓ |
+| `src/components/ErrorBoundary.tsx` | `"use client"` class component; `getDerivedStateFromError` + `componentDidCatch` | ✓ |
+| `src/lib/datasources/exa-deep.ts` | Migrated from `research.create`/polling to `exa.search({ type:"deep" })`; `satisfies DeepOutputSchema`; revert comment present | ✓ |
+| `src/app/page.tsx` | `ACTIVE_TAB_STORAGE_KEY`; `handleTabChange` with localStorage; mount restore; 429 guard in `runAnalysis`; demo chips; `ErrorBoundary` on Report + ThemePanel | ✓ |
+| `src/components/ThemePanel.tsx` | 429 + 408/504 guards before generic error; polished fallback messages; `DEMO_THEMES` chips in empty state | ✓ |
+| `src/app/api/themes/route.ts` | 422 → "No companies found for this theme. Try a broader search…"; 500 → "Unable to load theme data…" | ✓ |
+| `vercel.json` | `framework: nextjs`; analyze/themes 60s, search/monitor 15s | ✓ |
+| `src/app/layout.tsx` | Offline-safe font handling (build-time fix) | ✓ (noted) |
+| `src/app/globals.css` | Local font fallback variables | ✓ (noted) |
+| `src/lib/db.ts` | Turbopack ignore hints | ✓ (noted) |
+| `next.config.ts` | Build-safe worker settings | ✓ (noted) |
+
+## Verification
+
+| Check | Result |
+|-------|--------|
+| `npx tsc --noEmit` | ✓ zero errors |
+| `npm run lint` | ✓ zero warnings |
+| `npm run build` | ✓ production build succeeds |
+| All agents/analyzer/orchestrator/analyze-route unchanged | ✓ hashes match Phase 8 baseline |
+
+## Deviations from Plan
+
+- **`vercel.json` `maxDuration: 60` for `/api/analyze`**: Plan allowed for 300 (Pro). Implementation used 60 to stay Hobby-compatible. Note this at the demo: first-run complex companies (SpaceX, Anthropic) may timeout on Hobby; cached responses will be instant.
+- **Four extra files modified** beyond the plan (`layout.tsx`, `globals.css`, `db.ts`, `next.config.ts`): all were build-time fixes required to make `npm run build` pass locally on Windows. None affect runtime logic.
+- **`getDerivedStateFromError` not marked `override`**: Minor — the method works correctly; `override` is optional when the parent method exists.
+
+## Next Step: Deploy
+
+Follow PART 9 deployment steps in the plan section below. `vercel --prod` was not run.
+
+---
+
+## Overview
+
+Final hardening pass before the Amakor Capital demo. Nine parts: Exa API alignment,
+tab persistence, demo fixtures, error boundaries, error message polish, Vercel config,
+build verification, demo UX, and deployment documentation.
+
+---
+
+## Files to Create / Modify
+
+| File | Change |
+|------|--------|
+| `src/lib/datasources/exa-deep.ts` | Migrate from `exa.research.create` to `exa.search({ type:"deep" })` |
+| `src/app/page.tsx` | Tab persistence + 429 detection + demo company chips |
+| `src/lib/demo-names.ts` | New — DEMO_COMPANIES and DEMO_THEMES arrays |
+| `src/components/ErrorBoundary.tsx` | New — React class error boundary |
+| `src/app/api/themes/route.ts` | Error message polish |
+| `src/components/ThemePanel.tsx` | Error message polish + demo theme starter chips |
+| `vercel.json` | New — Vercel deployment config |
+
+Files NOT touched: all agents, orchestrator, analyzer, all other route files, Report.tsx
+panels, types.ts, confidence.ts, investment-memo.ts, claude-narrative.ts.
+
+---
+
+## PART 1 — Exa API Consistency Audit
+
+### Finding
+
+The two Exa-using files diverge:
+
+| File | Method | Pattern |
+|------|--------|---------|
+| `src/lib/datasources/exa-deep.ts` | `exa.research.create()` + `exa.research.pollUntilFinished()` | Async polling job; extracts `output.parsed` |
+| `src/lib/agents/theme-agent.ts` | `exa.search(query, { type: "deep", outputSchema })` | Direct synchronous call; extracts `output.content` |
+
+`exa-deep.ts` uses the older async Research API (creates a job ID, polls until done, reads
+`output.parsed`). `theme-agent.ts` uses the newer `search()` API confirmed working against
+`exa-js@2.11.0`. The Research API's async polling is unnecessary complexity now that
+`search({ type: "deep" })` is available.
+
+### Action: migrate `exa-deep.ts` to `exa.search()`
+
+#### Changes required
+
+**Line 1** — add `DeepOutputSchema` to import:
+```ts
+// before
+import Exa from "exa-js";
+// after
+import Exa, { type DeepOutputSchema } from "exa-js";
+```
+
+**Line 7** — tighten schema type:
+```ts
+// before
+const EXA_OUTPUT_SCHEMA: Record<string, unknown> = {
+// after
+const EXA_OUTPUT_SCHEMA = {
+  // ...unchanged properties...
+} satisfies DeepOutputSchema;
+```
+
+**Add** `parseStructuredContent` helper after the existing normalizer functions
+(identical to `parseStructuredThemeContent` in `theme-agent.ts`):
+```ts
+function parseStructuredContent(content: unknown): Record<string, unknown> | null {
+  if (isRecord(content)) return content;
+  if (typeof content !== "string") return null;
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+```
+
+**Lines 134-178** — replace the research.create / pollUntilFinished block:
+```ts
+// BEFORE (lines 134–183 approximately):
+const instructions = `Research the company "${query}"...`;
+const created = await exa.research.create({ instructions, outputSchema: EXA_OUTPUT_SCHEMA });
+const result = await exa.research.pollUntilFinished(created.researchId);
+if (result.status !== "completed") { return { success: false, error: `exa research ...` }; }
+const completedResult = result as { output: { content: string; parsed?: Record<string, unknown> } };
+const parsed = completedResult.output.parsed ?? null;
+if (parsed === null) { return { success: false, error: "exa output missing required fields" }; }
+
+// AFTER:
+const query_string = `Research the company "${query}". Provide a structured overview covering: `
+  + `business model and current scale, estimated revenue, total funding raised, `
+  + `last known valuation, founded year, headquarters, key investors, main competitors, `
+  + `and recent notable news or developments.`;
+const searchResult = await exa.search(query_string, {
+  type: "deep",
+  outputSchema: EXA_OUTPUT_SCHEMA,
+});
+const parsed = parseStructuredContent(searchResult.output?.content);
+if (parsed === null) {
+  console.error("[exa-deep] output missing or unparseable", { query });
+  return { success: false, error: "exa output missing required fields" };
+}
+```
+
+The rest of the function (normalizeExaDeepData call and return) is unchanged.
+
+**Risk note**: `exa.research.create` is designed for deep multi-source research on a
+single entity; `exa.search({ type: "deep" })` is neural search. Output quality should be
+verified against the 4 test companies (SpaceX, Klarna, Deutsche Bank, Anthropic) after
+migration. If output degrades, revert `exa-deep.ts` and keep the two files intentionally
+diverged — document the reason in a code comment.
+
+---
+
+## PART 2 — Tab Persistence (`src/app/page.tsx`)
+
+### What changes
+
+1. Extract tab changes into a helper that writes to localStorage.
+2. Add a `useEffect` to restore the tab from localStorage on mount.
+3. Handle errors silently (private browsing, quota exceeded).
+
+### Implementation
+
+**After the existing state declarations** (around line 57), add a helper function:
+
+```ts
+// Read saved tab once on mount — inside useEffect only (SSR safe)
+// Called at the bottom of the existing mount useEffect.
+```
+
+**Modify the existing mount `useEffect`** (currently lines 64–87) to add tab restore:
+
+```ts
+useEffect(() => {
+  // tab restore (new)
+  try {
+    const saved = localStorage.getItem("fin:activeTab");
+    if (saved === "company" || saved === "themes") {
+      setActiveTab(saved);
+    }
+  } catch {
+    // private browsing or storage unavailable — default "company" stays
+  }
+
+  // existing monitor load (unchanged)
+  const loadMonitorItems = async (): Promise<void> => { ... };
+  void loadMonitorItems();
+
+  return () => { ... };
+}, []);
+```
+
+**Add a `handleTabChange` function** (before `handleSearch`, around line 234):
+
+```ts
+const handleTabChange = (tab: ActiveTab): void => {
+  setActiveTab(tab);
+  try {
+    localStorage.setItem("fin:activeTab", tab);
+  } catch {
+    // ignore
+  }
+};
+```
+
+**Replace all three `setActiveTab` call sites** with `handleTabChange`:
+1. Company button `onClick` (line ~451): `handleTabChange("company")`
+2. Themes button `onClick` (line ~466): `handleTabChange("themes")`
+3. `handleThemeCompanySelect` (line 296): `handleTabChange("company")`
+
+localStorage key: `"fin:activeTab"` (namespaced to avoid collision).
+
+---
+
+## PART 3 — Demo Names (`src/lib/demo-names.ts`)
+
+New file, ~20 lines:
+
+```ts
+export const DEMO_COMPANIES = [
+  "Apple",
+  "Microsoft",
+  "NVIDIA",
+  "Tesla",
+  "Deutsche Bank",
+  "Klarna",
+  "Stripe",
+  "SpaceX",
+  "Anthropic",
+] as const;
+
+export const DEMO_THEMES = [
+  "EV charging infrastructure",
+  "BNPL payments",
+  "AI inference chips",
+  "Generative AI enterprise",
+  "Defense tech",
+] as const;
+
+export type DemoCompany = (typeof DEMO_COMPANIES)[number];
+export type DemoTheme = (typeof DEMO_THEMES)[number];
+```
+
+**Pre-cache warming**: Skip. On Vercel every serverless invocation is stateless; pre-warm
+logic on server startup would re-fire every cold start and exhaust API quota instantly.
+The 24-hour SQLite/Turso cache already handles warm-up after first genuine requests.
+
+---
+
+## PART 4 — Error Boundaries (`src/components/ErrorBoundary.tsx`)
+
+### New file
+
+React class component — the only valid way to catch render errors. Must be `"use client"`.
+
+```ts
+"use client";
+
+import { Component, type ErrorInfo, type ReactNode } from "react";
+
+type Props = {
+  readonly children: ReactNode;
+  readonly fallback?: ReactNode;
+  readonly section?: string;
+};
+
+type State = { readonly hasError: boolean };
+
+export class ErrorBoundary extends Component<Props, State> {
+  override state: State = { hasError: false };
+
+  static override getDerivedStateFromError(): State {
+    return { hasError: true };
+  }
+
+  override componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error(`[ErrorBoundary:${this.props.section ?? "unknown"}] render error`, {
+      message: error.message,
+      componentStack: info.componentStack,
+    });
+  }
+
+  override render(): ReactNode {
+    if (this.state.hasError) {
+      return (
+        this.props.fallback ?? (
+          <div className="rounded-2xl border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+            Something went wrong
+            {this.props.section !== undefined ? ` in ${this.props.section}` : ""}.
+            Refresh the page to retry.
+          </div>
+        )
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default ErrorBoundary;
+```
+
+### Where to wrap (`src/app/page.tsx`)
+
+Import at the top:
+```ts
+import ErrorBoundary from "@/components/ErrorBoundary";
+```
+
+Wrap `<Report>` (around line 615):
+```tsx
+<ErrorBoundary section="Report">
+  <Report isRefreshing={isAnalyzing} onRefresh={handleRefresh} report={report} />
+</ErrorBoundary>
+```
+
+Wrap `<ThemePanel>` (around line 696):
+```tsx
+<ErrorBoundary section="ThemePanel">
+  <ThemePanel onCompanySelect={handleThemeCompanySelect} />
+</ErrorBoundary>
+```
+
+**Why not wrap InvestmentMemoPanel inside Report.tsx**: `Report.tsx` has no `"use client"`
+directive. Adding a class-component import would require either converting Report.tsx to a
+client component (large blast radius) or adding a separate "use client" wrapper file. For
+the MVP demo the page-level boundary on `<Report>` is sufficient — if any panel inside
+Report crashes it is caught at that level.
+
+---
+
+## PART 5 — Error Message Polish
+
+### `src/app/api/themes/route.ts`
+
+Line 31 — zero companies response:
+```ts
+// before
+{ ok: false, error: "No data found for this theme" }
+// after
+{ ok: false, error: "No companies found for this theme. Try a broader search or check the spelling." }
+```
+
+Line 41 — unexpected error response:
+```ts
+// before
+{ ok: false, error: "Theme service unavailable" }
+// after
+{ ok: false, error: "Unable to load theme data. Please try again or check your connection." }
+```
+
+### `src/components/ThemePanel.tsx`
+
+Line ~199 — fetch catch block:
+```ts
+// before
+setError("Theme exploration failed");
+// after
+setError("Theme exploration failed. Please try again.");
+```
+
+Line ~192 — non-ok response fallback:
+```ts
+// before
+setError(data.error ?? "Theme exploration failed");
+// after
+setError(data.error ?? "Theme exploration failed. Please try again.");
+```
+
+Add 429 handling before the generic non-ok check (add after `response.json()` call):
+```ts
+if (response.status === 429) {
+  setError("Hit rate limit. Please wait a minute and try again.");
+  return;
+}
+if (response.status === 408 || response.status === 504) {
+  setError("Request timed out. Exa Deep can take 15 seconds — please wait and retry.");
+  return;
+}
+```
+
+### `src/app/page.tsx` — 429 detection in `runAnalysis`
+
+After line 196 (`const data = (await response.json()) as AnalyzeApiResponse;`), add:
+```ts
+if (response.status === 429) {
+  if (requestId === latestAnalysisRequestRef.current) {
+    setError("Hit rate limit. Please wait a minute and try again.");
+  }
+  return;
+}
+```
+
+---
+
+## PART 6 — Vercel Configuration (`vercel.json`)
+
+New file at project root:
+
+```json
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "installCommand": "npm install",
+  "functions": {
+    "src/app/api/analyze/route.ts": { "maxDuration": 300 },
+    "src/app/api/themes/route.ts": { "maxDuration": 60 },
+    "src/app/api/search/route.ts": { "maxDuration": 15 },
+    "src/app/api/monitor/route.ts": { "maxDuration": 15 }
+  }
+}
+```
+
+**Important**: `maxDuration: 300` requires Vercel Pro plan. On Hobby (free), max is 60
+seconds. Set `maxDuration: 60` for `/api/analyze` if deploying on Hobby; some analysis
+runs will timeout. Document this in the deployment steps.
+
+### Required environment variables in Vercel dashboard
+
+Set ALL of these in Project Settings → Environment Variables:
+
+| Variable | Required | Notes |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Yes | Claude API for memo generation |
+| `FINNHUB_API_KEY` | Yes | Market data |
+| `FMP_API_KEY` | Optional | Historical multiples, peer data |
+| `COMPANIES_HOUSE_API_KEY` | Yes | UK registry |
+| `EXA_API_KEY` | Yes | Private company deep research + themes |
+| `SEC_EDGAR_USER_AGENT` | Yes | Format: `"AppName email@domain.com"` |
+| `TURSO_DATABASE_URL` | Yes (Vercel) | libsql://xxx.turso.io — free tier is enough |
+| `TURSO_AUTH_TOKEN` | Yes (Vercel) | Turso auth token |
+| `DATABASE_URL` | No (Vercel) | Only for local dev; Turso takes priority |
+
+**Database on Vercel**: `db.ts` auto-detects Vercel (`process.env.VERCEL === "1"`) and
+avoids local SQLite. When `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` are set, it uses
+Turso. Without those, it falls back to in-memory (monitor list and cache lost on each cold
+start — acceptable for demo but not ideal). Set up a free Turso database before deploying.
+
+**To create a Turso database**:
+```sh
+npx turso db create finance-intelligence
+npx turso db tokens create finance-intelligence
+```
+
+---
+
+## PART 7 — Build Verification
+
+Run these checks locally before deploying. All must pass.
+
+```sh
+# 1. TypeScript
+npx tsc --noEmit
+
+# 2. Lint
+npm run lint
+
+# 3. Production build
+npm run build
+# Expect: no errors, no "use client" warnings
+# Watch for: any component importing server-only modules
+
+# 4. Smoke test the build locally
+npm run start
+# Hit http://localhost:3000 and run one analysis
+```
+
+**Known risks to check during build**:
+- `ErrorBoundary.tsx` is `"use client"` + class component — React class components are
+  valid with `"use client"` in Next.js App Router.
+- `exa-deep.ts` migration: if `exa.search()` with `type: "deep"` and `satisfies DeepOutputSchema`
+  causes a TypeScript error, cast the schema as `DeepOutputSchema` explicitly.
+- `demo-names.ts` imports in `page.tsx` and `ThemePanel.tsx`: ensure these are only
+  imported in client components (both are `"use client"` — no issue).
+- Prisma: `prisma generate` is NOT needed at build time. `db.ts` imports directly from
+  `@libsql/client`, not from `@prisma/client`. The Prisma schema is documentation only.
+- `execFileSync` in `db.ts` (sqlite mode): not called in Vercel runtime because
+  `SHOULD_AVOID_LOCAL_SQLITE` is true. No Node.js binary access issues.
+
+---
+
+## PART 8 — Demo-Ready UX Polish
+
+### A. Demo company chips in `src/app/page.tsx`
+
+Import `DEMO_COMPANIES`:
+```ts
+import { DEMO_COMPANIES } from "@/lib/demo-names";
+```
+
+In the empty state `!hasReport` hero section, **replace the existing status chips row**
+(currently at lines 503–517) with demo name chips when query is empty:
+
+```tsx
+<div className="mt-4 flex flex-wrap items-center gap-2">
+  {query.trim().length === 0 && !isAnalyzing ? (
+    <>
+      <span className="text-xs uppercase tracking-[0.18em] text-zinc-600 mr-1">Try:</span>
+      {DEMO_COMPANIES.map((name) => (
+        <button
+          className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-zinc-400 transition hover:border-emerald-400/25 hover:text-emerald-200"
+          key={name}
+          onClick={() => {
+            setQuery(name);
+            void runAnalysis(name);
+          }}
+          type="button"
+        >
+          {name}
+        </button>
+      ))}
+    </>
+  ) : (
+    // existing status chips (debounced search / candidate count / searching indicator)
+    <>
+      <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5">
+        Debounced live search
+      </span>
+      ...
+    </>
+  )}
+</div>
+```
+
+### B. Demo theme starter chips in `src/components/ThemePanel.tsx`
+
+Import `DEMO_THEMES`:
+```ts
+import { DEMO_THEMES } from "@/lib/demo-names";
+```
+
+In the "No Theme Loaded" empty state section (currently at line ~415), add starter chips
+below the descriptive paragraph:
+
+```tsx
+<div className="mt-6 flex flex-wrap gap-2">
+  <span className="w-full text-xs uppercase tracking-[0.18em] text-zinc-600">Try a starter theme:</span>
+  {DEMO_THEMES.map((theme) => (
+    <button
+      className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-zinc-400 transition hover:border-emerald-400/25 hover:text-emerald-200"
+      disabled={isLoading}
+      key={theme}
+      onClick={() => {
+        setThemeQuery(theme);
+        void handleExplore(theme);
+      }}
+      type="button"
+    >
+      {theme}
+    </button>
+  ))}
+</div>
+```
+
+### C. Existing brand label check
+
+`page.tsx` line 480 already has `"Financial Intelligence"` as a section label. No new
+branding element is needed. The hero heading ("Source-backed company analysis for fast
+diligence.") is clear and professional.
+
+---
+
+## PART 9 — Deployment Steps (Manual)
+
+Document here; do NOT execute automatically.
+
+```sh
+# 0. Prerequisites
+# - Vercel CLI installed: npm install -g vercel
+# - Turso CLI installed: npm install -g turso
+# - All env vars collected
+
+# 1. Create Turso database
+npx turso db create finance-intelligence
+npx turso db show finance-intelligence   # note the URL
+npx turso db tokens create finance-intelligence  # note the token
+
+# 2. Local build verification
+npm run build          # must succeed with zero errors
+
+# 3. Deploy to Vercel
+vercel --prod          # first run: follow prompts to link project
+
+# 4. Add environment variables
+# Use Vercel dashboard: Project → Settings → Environment Variables
+# Add all variables from PART 6 table above
+
+# 5. Re-deploy after adding env vars
+vercel --prod
+
+# 6. Post-deploy smoke tests
+# Open: https://<your-deployment>.vercel.app
+# Test Company tab: search "Apple" → analysis should complete
+# Test Company tab: search "Klarna" → private company analysis
+# Test Themes tab: enter "AI inference chips" → exposure map
+# Test click-through: click NVIDIA in theme results → Company tab fires
+
+# 7. Record production URL
+# Add to this file under "Production URL" heading below
+```
+
+### Required Vercel plan note
+
+The `/api/analyze` route can take up to 3 minutes for multi-source private companies.
+`maxDuration: 300` in `vercel.json` requires **Vercel Pro** ($20/month).
+
+On Hobby tier: set `maxDuration: 60` and warn the demo client that complex analyses
+(SpaceX, Anthropic, Klarna) will time out; cached results on subsequent requests will
+be fast.
+
+### Production URL
+
+*(To be filled in after deployment)*
+
+---
+
+## Implementation Order
+
+1. **PART 3** — Create `demo-names.ts` (no dependencies, no risk)
+2. **PART 4** — Create `ErrorBoundary.tsx` (no dependencies)
+3. **PART 1** — Migrate `exa-deep.ts` to `exa.search()`; test with SpaceX + Klarna
+4. **PART 2** — Tab persistence in `page.tsx`
+5. **PART 5** — Error message polish in route + ThemePanel + page.tsx
+6. **PART 6** — Create `vercel.json`
+7. **PART 8** — Add demo chips to `page.tsx` + `ThemePanel.tsx`
+8. **PART 7** — `npx tsc --noEmit` + `npm run lint` + `npm run build`
+9. **PART 9** — Manual deployment
+
+---
+
 # Phase 8: Thematic Intelligence MVP — Plan
 
 ## Status

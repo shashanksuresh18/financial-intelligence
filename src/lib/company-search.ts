@@ -1,6 +1,6 @@
-import type { SearchResult } from "@/lib/types";
+import type { SearchResult } from '@/lib/types';
 
-export type SearchSource = "finnhub" | "companies-house" | "gleif";
+export type SearchSource = 'finnhub' | 'companies-house' | 'gleif';
 
 type SearchGroup = {
   readonly source: SearchSource;
@@ -15,74 +15,89 @@ type ScoredSearchResult = SearchResult & {
 const SEARCH_VARIANT_LIMIT = 3;
 const RESULT_LIMIT = 8;
 const MIN_SCORE = 30;
+const STRONG_NAME_MATCH_SCORE = 70;
 
 const LEGAL_SUFFIXES = new Set([
-  "ag",
-  "bv",
-  "co",
-  "company",
-  "corporation",
-  "corp",
-  "gmbh",
-  "holding",
-  "holdings",
-  "inc",
-  "incorporated",
-  "limited",
-  "llc",
-  "llp",
-  "ltd",
-  "plc",
-  "sa",
-  "sarl",
-  "spa",
-  "ug",
+  'ag',
+  'bv',
+  'co',
+  'company',
+  'corporation',
+  'corp',
+  'gmbh',
+  'holding',
+  'holdings',
+  'inc',
+  'incorporated',
+  'limited',
+  'llc',
+  'llp',
+  'ltd',
+  'plc',
+  'sa',
+  'sarl',
+  'spa',
+  'ug',
 ]);
 
+const KNOWN_PRIVATE_COMPANIES = [
+  'SpaceX',
+  'Stripe',
+  'Databricks',
+  'Anthropic',
+  'OpenAI',
+  'Open AI',
+  'xAI',
+  'x AI',
+  'Revolut',
+] as const;
+
 const QUERY_STRIP_TERMS = new Set([
-  "ag",
-  "bank",
-  "co",
-  "company",
-  "corporation",
-  "corp",
-  "group",
-  "holding",
-  "holdings",
-  "inc",
-  "incorporated",
-  "limited",
-  "llc",
-  "llp",
-  "ltd",
-  "plc",
-  "services",
-  "solutions",
-  "technology",
-  "technologies",
-  "the",
+  'ag',
+  'bank',
+  'co',
+  'company',
+  'corporation',
+  'corp',
+  'group',
+  'holding',
+  'holdings',
+  'inc',
+  'incorporated',
+  'limited',
+  'llc',
+  'llp',
+  'ltd',
+  'plc',
+  'services',
+  'solutions',
+  'technology',
+  'technologies',
+  'the',
 ]);
 
 function normalizeTokens(value: string): readonly string[] {
   return value
     .toLowerCase()
-    .normalize("NFKC")
-    .replace(/[^a-z0-9]+/g, " ")
+    .normalize('NFKC')
+    .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .split(/\s+/)
     .filter((token) => token.length > 0);
 }
 
 function normalizeText(value: string): string {
-  return normalizeTokens(value).join(" ");
+  return normalizeTokens(value).join(' ');
 }
 
-function stripTrailingLegalSuffixes(tokens: readonly string[]): readonly string[] {
+function stripTrailingLegalSuffixes(
+  tokens: readonly string[]
+): readonly string[] {
   const trimmed = [...tokens];
 
   while (
     trimmed.length > 1 &&
-    LEGAL_SUFFIXES.has(trimmed[trimmed.length - 1] ?? "")
+    LEGAL_SUFFIXES.has(trimmed[trimmed.length - 1] ?? '')
   ) {
     trimmed.pop();
   }
@@ -93,10 +108,21 @@ function stripTrailingLegalSuffixes(tokens: readonly string[]): readonly string[
 function canonicalKey(value: string): string {
   const stripped = stripTrailingLegalSuffixes(normalizeTokens(value));
 
-  return stripped.join(" ");
+  return stripped.join(' ');
 }
 
-function tokenOverlap(left: readonly string[], right: readonly string[]): number {
+function compactKey(value: string): string {
+  return canonicalKey(value).replace(/\s+/g, '');
+}
+
+const KNOWN_PRIVATE_COMPANY_KEYS = new Set(
+  KNOWN_PRIVATE_COMPANIES.map((company) => canonicalKey(company))
+);
+
+function tokenOverlap(
+  left: readonly string[],
+  right: readonly string[]
+): number {
   const leftTokens = left.filter((token) => !QUERY_STRIP_TERMS.has(token));
   const rightTokens = right.filter((token) => !QUERY_STRIP_TERMS.has(token));
 
@@ -119,51 +145,111 @@ function tokenOverlap(left: readonly string[], right: readonly string[]): number
 function getSourceWeight(source: SearchSource, query: string): number {
   const tokenCount = normalizeTokens(query).length;
 
-  if (source === "finnhub") {
+  if (source === 'finnhub') {
     return tokenCount <= 1 ? 26 : 14;
   }
 
-  if (source === "companies-house") {
+  if (source === 'companies-house') {
     return tokenCount <= 1 ? 20 : 34;
   }
 
   return tokenCount <= 1 ? 18 : 32;
 }
 
-function scoreSearchResult(
+export function normalizeCompanyMatchKey(value: string): string {
+  return canonicalKey(value);
+}
+
+export function scoreCompanyNameMatch(
   query: string,
-  result: SearchResult,
-  source: SearchSource,
+  candidateName: string
 ): number {
   const queryVariants = buildCompanySearchVariants(query);
-  const candidateName = normalizeText(result.name);
-  const candidateTokens = normalizeTokens(result.name);
-  const candidateTicker = result.ticker ? normalizeText(result.ticker) : "";
-  let bestScore = 0;
+  const candidateKey = canonicalKey(candidateName);
+  const candidateCompact = compactKey(candidateName);
+  const candidateTokens = candidateKey
+    .split(' ')
+    .filter((token) => token.length > 0);
+  let bestScore = Number.NEGATIVE_INFINITY;
 
-  for (let index = 0; index < queryVariants.length; index += 1) {
-    const variant = queryVariants[index];
-    const variantTokens = normalizeTokens(variant);
-    const variantName = normalizeText(variant);
-    const sourceWeight = getSourceWeight(source, variant);
-    const variantWeight = SEARCH_VARIANT_LIMIT - index;
-    let score = sourceWeight + variantWeight;
+  for (const variant of queryVariants) {
+    const variantKey = canonicalKey(variant);
+    const variantCompact = compactKey(variant);
+    const variantTokens = variantKey
+      .split(' ')
+      .filter((token) => token.length > 0);
 
-    if (candidateName === variantName) {
-      score += 100;
-    } else if (candidateName.startsWith(variantName)) {
-      score += 80;
-    } else if (candidateName.includes(variantName)) {
-      score += 60;
-    } else if (variantName.includes(candidateName)) {
-      score += 50;
+    if (variantKey.length === 0) {
+      continue;
+    }
+
+    let score = 0;
+
+    if (candidateKey === variantKey) {
+      score = 120;
+    } else if (candidateKey.startsWith(`${variantKey} `)) {
+      score = 95;
+    } else if (
+      variantTokens.length === 1 &&
+      candidateTokens.includes(variantTokens[0] ?? '')
+    ) {
+      score = 78;
+    } else if (
+      variantTokens.length > 1 &&
+      variantTokens.every((token) => candidateTokens.includes(token))
+    ) {
+      score = 72;
+    } else if (variantKey.startsWith(`${candidateKey} `)) {
+      score = 58;
     } else {
       const overlap = tokenOverlap(variantTokens, candidateTokens);
 
       if (overlap > 0) {
-        score += 15 + overlap * 8;
+        score = 18 + overlap * 10;
+      } else if (
+        variantCompact.length >= 4 &&
+        candidateCompact.includes(variantCompact)
+      ) {
+        // Penalize merged-token substring matches such as "SpaceX" -> "Metaspacex".
+        score = -20;
       }
     }
+
+    if (score > bestScore) {
+      bestScore = score;
+    }
+  }
+
+  return Number.isFinite(bestScore) ? bestScore : 0;
+}
+
+export function hasStrongCompanyNameMatch(
+  query: string,
+  candidateName: string
+): boolean {
+  return scoreCompanyNameMatch(query, candidateName) >= STRONG_NAME_MATCH_SCORE;
+}
+
+export function isKnownPrivateCompanyQuery(query: string): boolean {
+  return KNOWN_PRIVATE_COMPANY_KEYS.has(canonicalKey(query));
+}
+
+function scoreSearchResult(
+  query: string,
+  result: SearchResult,
+  source: SearchSource
+): number {
+  const queryVariants = buildCompanySearchVariants(query);
+  const nameScore = scoreCompanyNameMatch(query, result.name);
+  const candidateTicker = result.ticker ? normalizeText(result.ticker) : '';
+  let bestScore = 0;
+
+  for (let index = 0; index < queryVariants.length; index += 1) {
+    const variant = queryVariants[index];
+    const variantName = normalizeText(variant);
+    const sourceWeight = getSourceWeight(source, variant);
+    const variantWeight = SEARCH_VARIANT_LIMIT - index;
+    let score = sourceWeight + variantWeight + nameScore;
 
     if (candidateTicker.length > 0) {
       if (candidateTicker === variantName) {
@@ -176,10 +262,6 @@ function scoreSearchResult(
       }
     }
 
-    if (candidateName.length > variantName.length + 20) {
-      score -= 5;
-    }
-
     if (score > bestScore) {
       bestScore = score;
     }
@@ -188,7 +270,9 @@ function scoreSearchResult(
   return bestScore;
 }
 
-function dedupeByBestScore(items: readonly ScoredSearchResult[]): readonly ScoredSearchResult[] {
+function dedupeByBestScore(
+  items: readonly ScoredSearchResult[]
+): readonly ScoredSearchResult[] {
   const byId = new Map<string, ScoredSearchResult>();
 
   for (const item of items) {
@@ -223,11 +307,11 @@ function dedupeByBestScore(items: readonly ScoredSearchResult[]): readonly Score
 
 export function buildCompanySearchVariants(query: string): readonly string[] {
   const normalized = normalizeText(query);
-  const tokens = normalized.split(" ").filter((token) => token.length > 0);
+  const tokens = normalized.split(' ').filter((token) => token.length > 0);
   const variants: string[] = [];
 
   const addVariant = (value: string): void => {
-    const candidate = value.trim().replace(/\s+/g, " ");
+    const candidate = value.trim().replace(/\s+/g, ' ');
 
     if (candidate.length === 0) {
       return;
@@ -242,19 +326,21 @@ export function buildCompanySearchVariants(query: string): readonly string[] {
   addVariant(normalized);
 
   if (tokens.length > 1) {
-    const strippedTerms = tokens.filter((token) => !QUERY_STRIP_TERMS.has(token));
+    const strippedTerms = tokens.filter(
+      (token) => !QUERY_STRIP_TERMS.has(token)
+    );
     const strippedTrailing = stripTrailingLegalSuffixes(tokens);
 
     if (strippedTerms.length > 0) {
-      addVariant(strippedTerms.join(" "));
+      addVariant(strippedTerms.join(' '));
     }
 
     if (strippedTrailing.length > 0) {
-      addVariant(strippedTrailing.join(" "));
+      addVariant(strippedTrailing.join(' '));
     }
 
-    if (tokens[0] === "the") {
-      addVariant(tokens.slice(1).join(" "));
+    if (tokens[0] === 'the') {
+      addVariant(tokens.slice(1).join(' '));
     }
   }
 
@@ -263,14 +349,14 @@ export function buildCompanySearchVariants(query: string): readonly string[] {
 
 export function rankAndDedupeSearchResults(
   query: string,
-  groups: readonly SearchGroup[],
+  groups: readonly SearchGroup[]
 ): readonly SearchResult[] {
   const scored = groups.flatMap((group) =>
     group.results.map((result) => ({
       ...result,
       source: group.source,
       score: scoreSearchResult(query, result, group.source),
-    })),
+    }))
   );
 
   const ranked = [...dedupeByBestScore(scored)].sort(
@@ -280,7 +366,7 @@ export function rankAndDedupeSearchResults(
       }
 
       return left.name.localeCompare(right.name);
-    },
+    }
   );
 
   if (ranked.length === 0) {
@@ -293,11 +379,13 @@ export function rankAndDedupeSearchResults(
   return ranked
     .filter((item: ScoredSearchResult) => item.score >= threshold)
     .slice(0, RESULT_LIMIT)
-    .map((item: ScoredSearchResult): SearchResult => ({
-      id: item.id,
-      name: item.name,
-      ticker: item.ticker,
-      jurisdiction: item.jurisdiction,
-      description: item.description,
-    }));
+    .map(
+      (item: ScoredSearchResult): SearchResult => ({
+        id: item.id,
+        name: item.name,
+        ticker: item.ticker,
+        jurisdiction: item.jurisdiction,
+        description: item.description,
+      })
+    );
 }

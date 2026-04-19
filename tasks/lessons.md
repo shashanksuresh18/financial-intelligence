@@ -14,6 +14,8 @@ Review this file at the start of every session.
 ## Log
 (Add entries in reverse chronological order)
 
+- QA regressions clustered around integration seams: model IDs can silently deprecate, backend fields can be generated without UI coverage, and free-tier APIs can reject optional endpoints. Before calling a feature complete, verify model IDs are current, every persisted memo field is rendered where intended, and optional upstream failures degrade to partial coverage instead of breaking the run.
+- Private-company resolution must never rely on loose substring matches. Exact or near-exact name matches must outrank market-cap heuristics, and known private-company queries should reject weak non-US low-cap public listings so fallback research can run.
 - Entity disambiguation must treat unknown 1-2 letter exchange suffixes as Tier 1 by default, and ADR promotion must prefer Tier 0 common-stock listings before any Tier 1 fallback regardless of market cap ordering.
 - Entity resolution must never short-circuit on exact ticker hits or partial symbol substrings. Run all candidates through name-relevance filtering plus primary-listing ranking before choosing a company.
 - Search flows must separate live input from loaded report state. If the user edits the query, clear or invalidate any in-flight analysis so the UI cannot keep showing a previous company's report for a new query.

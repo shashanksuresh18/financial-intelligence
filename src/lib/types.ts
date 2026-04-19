@@ -1,29 +1,29 @@
 export type DataSource =
-  | "finnhub"
-  | "fmp"
-  | "sec-edgar"
-  | "companies-house"
-  | "gleif"
-  | "exa-deep"
-  | "claude-fallback";
+  | 'finnhub'
+  | 'fmp'
+  | 'sec-edgar'
+  | 'companies-house'
+  | 'gleif'
+  | 'exa-deep'
+  | 'claude-fallback';
 
-export type ConfidenceLevel = "low" | "medium" | "high";
+export type ConfidenceLevel = 'low' | 'medium' | 'high';
 
 export type ConfidenceComponent = {
-  readonly key: "identity" | "financials" | "street" | "freshness";
+  readonly key: 'identity' | 'financials' | 'street' | 'freshness';
   readonly label: string;
   readonly score: number;
   readonly rationale: string;
 };
 
-export type FiscalPeriod = "Q1" | "Q2" | "Q3" | "Q4" | "FY";
+export type FiscalPeriod = 'Q1' | 'Q2' | 'Q3' | 'Q4' | 'FY';
 
 export type AnalystRating =
-  | "Strong Buy"
-  | "Buy"
-  | "Hold"
-  | "Sell"
-  | "Strong Sell"
+  | 'Strong Buy'
+  | 'Buy'
+  | 'Hold'
+  | 'Sell'
+  | 'Strong Sell'
   | string;
 
 export type ApiResult<T> =
@@ -47,14 +47,14 @@ export type SearchResult = {
 
 export type EntityIdentifier = {
   readonly label:
-  | "Canonical Name"
-  | "Ticker"
-  | "CIK"
-  | "Exchange"
-  | "Company Number"
-  | "LEI"
-  | "Jurisdiction"
-  | "Status";
+    | 'Canonical Name'
+    | 'Ticker'
+    | 'CIK'
+    | 'Exchange'
+    | 'Company Number'
+    | 'LEI'
+    | 'Jurisdiction'
+    | 'Status';
   readonly value: string;
   readonly source: DataSource;
 };
@@ -71,7 +71,7 @@ export type EntityResolution = {
 export type FinancialMetric = {
   readonly label: string;
   readonly value: number | string | null;
-  readonly format?: "currency" | "number" | "percent";
+  readonly format?: 'currency' | 'number' | 'percent';
   readonly period?: string;
   readonly source?: DataSource;
 };
@@ -119,7 +119,7 @@ export type PriceTargetSummary = {
 };
 
 export type ValuationMetricComparison = {
-  readonly label: "P/E" | "EV / EBITDA" | "EV / Sales" | "P/B";
+  readonly label: 'P/E' | 'EV / EBITDA' | 'EV / Sales' | 'P/B';
   readonly current: number | null;
   readonly historicalLow: number | null;
   readonly historicalHigh: number | null;
@@ -166,32 +166,32 @@ export type StreetView = {
 
 export type ResearchNoteSection = {
   readonly title:
-  | "Executive Summary"
-  | "Company Overview"
-  | "Financial Analysis"
-  | "Valuation"
-  | "Street Consensus"
-  | "Risk Factors"
-  | "Catalysts & Outlook"
-  | "Analyst Brief";
+    | 'Executive Summary'
+    | 'Company Overview'
+    | 'Financial Analysis'
+    | 'Valuation'
+    | 'Street Consensus'
+    | 'Risk Factors'
+    | 'Catalysts & Outlook'
+    | 'Analyst Brief';
   readonly body: string;
 };
 
-export type InvestmentRecommendation = "buy" | "watch" | "hold" | "avoid";
+export type InvestmentRecommendation = 'buy' | 'watch' | 'hold' | 'avoid';
 
 export type CoverageProfile =
-  | "Strong public coverage"
-  | "Mixed public coverage"
-  | "Registry-led private coverage"
-  | "Ambiguous entity"
-  | "Limited evidence";
+  | 'Strong public coverage'
+  | 'Mixed public coverage'
+  | 'Registry-led private coverage'
+  | 'Ambiguous entity'
+  | 'Limited evidence';
 
 export type InvestmentRiskCategory =
-  | "structural"
-  | "execution"
-  | "regulatory"
-  | "market"
-  | "data-quality";
+  | 'structural'
+  | 'execution'
+  | 'regulatory'
+  | 'market'
+  | 'data-quality';
 
 export type InvestmentRisk = {
   readonly title: string;
@@ -200,20 +200,20 @@ export type InvestmentRisk = {
   readonly rank: number;
 };
 
-export type RecommendationLogicStrength = "strong" | "mixed" | "weak";
+export type RecommendationLogicStrength = 'strong' | 'mixed' | 'weak';
 
-export type RecommendationFreshness = "fresh" | "reasonable" | "stale";
+export type RecommendationFreshness = 'fresh' | 'reasonable' | 'stale';
 
-export type RecommendationGapLoad = "contained" | "meaningful" | "heavy";
+export type RecommendationGapLoad = 'contained' | 'meaningful' | 'heavy';
 
 export type RecommendationLogic = {
   readonly entityCertainty: RecommendationLogicStrength;
-  readonly financialDepth: "strong" | "adequate" | "thin";
+  readonly financialDepth: 'strong' | 'adequate' | 'thin';
   readonly valuationSupport: RecommendationLogicStrength;
   readonly streetSignals: RecommendationLogicStrength;
   readonly freshness: RecommendationFreshness;
   readonly dataGaps: RecommendationGapLoad;
-  readonly tensions: "clear" | "present";
+  readonly tensions: 'clear' | 'present';
   readonly supportingReasons: readonly string[];
   readonly confidenceLimitingReasons: readonly string[];
 };
@@ -245,20 +245,20 @@ export type InvestmentMemo = {
 export type ReportDelta = {
   readonly title: string;
   readonly detail: string;
-  readonly tone: "positive" | "negative" | "neutral";
+  readonly tone: 'positive' | 'negative' | 'neutral';
 };
 
 export type EvidenceSignal = {
   readonly title: string;
   readonly detail: string;
-  readonly tone: "positive" | "negative" | "neutral";
+  readonly tone: 'positive' | 'negative' | 'neutral';
   readonly sources: readonly DataSource[];
 };
 
 export type CoverageGap = {
   readonly title: string;
   readonly detail: string;
-  readonly severity: "low" | "medium" | "high";
+  readonly severity: 'low' | 'medium' | 'high';
 };
 
 export type DisagreementNote = {
@@ -269,14 +269,14 @@ export type DisagreementNote = {
 
 export type SectionAuditItem = {
   readonly section:
-  | "Entity Resolution"
-  | "Company Overview"
-  | "Financial Analysis"
-  | "Valuation"
-  | "Street Consensus"
-  | "Risk Factors"
-  | "Catalysts & Outlook";
-  readonly status: "supported" | "partial" | "limited";
+    | 'Entity Resolution'
+    | 'Company Overview'
+    | 'Financial Analysis'
+    | 'Valuation'
+    | 'Street Consensus'
+    | 'Risk Factors'
+    | 'Catalysts & Outlook';
+  readonly status: 'supported' | 'partial' | 'limited';
   readonly note: string;
   readonly sources: readonly DataSource[];
 };
@@ -312,7 +312,7 @@ export type InsiderActivityItem = {
 export type MonitorItem = {
   readonly id: string;
   readonly label: string;
-  readonly status: "idle" | "watching";
+  readonly status: 'idle' | 'watching';
   readonly updatedAt: string;
   readonly snapshot?: {
     readonly confidenceScore: number;
@@ -394,8 +394,8 @@ export type FinnhubRecommendation = {
 };
 
 export type FinnhubBasicFinancialMetricSet = {
-  readonly "52WeekHigh"?: number | null;
-  readonly "52WeekLow"?: number | null;
+  readonly '52WeekHigh'?: number | null;
+  readonly '52WeekLow'?: number | null;
   readonly marketCapitalization?: number | null;
   readonly peBasicExclExtraTTM?: number | null;
   readonly peTTM?: number | null;
@@ -513,6 +513,7 @@ export type FmpPeerProfile = {
 
 export type FmpData = {
   readonly symbol: string;
+  readonly companyName: string | null;
   readonly historicalMultiples: readonly FmpHistoricalMultiple[];
   readonly enterpriseValues: readonly FmpEnterpriseValue[];
   readonly analystEstimates: readonly FmpAnalystEstimate[];
@@ -571,9 +572,9 @@ export type SecXbrlFacts = {
   readonly cik: number;
   readonly entityName: string;
   readonly facts: {
-    readonly "us-gaap"?: Record<string, SecXbrlConcept>;
-    readonly "dei"?: Record<string, SecXbrlConcept>;
-    readonly "ifrs-full"?: Record<string, SecXbrlConcept>;
+    readonly 'us-gaap'?: Record<string, SecXbrlConcept>;
+    readonly dei?: Record<string, SecXbrlConcept>;
+    readonly 'ifrs-full'?: Record<string, SecXbrlConcept>;
   };
 };
 
@@ -596,11 +597,11 @@ export type CompaniesHouseCompany = {
   readonly company_number: string;
   readonly company_name: string;
   readonly company_status:
-  | "active"
-  | "dissolved"
-  | "liquidation"
-  | "administration"
-  | string;
+    | 'active'
+    | 'dissolved'
+    | 'liquidation'
+    | 'administration'
+    | string;
   readonly company_type: string;
   readonly date_of_creation?: string;
   readonly registered_office_address: CompaniesHouseAddress;
@@ -642,7 +643,7 @@ export type CompaniesHouseAccounts = {
 export type CompaniesHouseProfile = {
   readonly company_name: string;
   readonly company_number: string;
-  readonly company_status: CompaniesHouseCompany["company_status"];
+  readonly company_status: CompaniesHouseCompany['company_status'];
   readonly company_type: string;
   readonly date_of_creation?: string;
   readonly jurisdiction?: string;
@@ -685,16 +686,16 @@ export type GleifRegistration = {
   readonly initialRegistrationDate: string;
   readonly lastUpdateDate: string;
   readonly status:
-  | "ISSUED"
-  | "LAPSED"
-  | "MERGED"
-  | "RETIRED"
-  | "ANNULLED"
-  | "DUPLICATE"
-  | "TRANSFERRED"
-  | "PENDING_TRANSFER"
-  | "PENDING_ARCHIVAL"
-  | string;
+    | 'ISSUED'
+    | 'LAPSED'
+    | 'MERGED'
+    | 'RETIRED'
+    | 'ANNULLED'
+    | 'DUPLICATE'
+    | 'TRANSFERRED'
+    | 'PENDING_TRANSFER'
+    | 'PENDING_ARCHIVAL'
+    | string;
   readonly nextRenewalDate: string;
   readonly managingLou: string;
 };
@@ -706,12 +707,7 @@ export type GleifEntity = {
   readonly headquartersAddress: GleifAddress;
   readonly registeredAt?: { readonly id: string };
   readonly jurisdiction: string;
-  readonly category:
-  | "GENERAL"
-  | "BRANCH"
-  | "FUND"
-  | "SOLE_PROPRIETOR"
-  | string;
+  readonly category: 'GENERAL' | 'BRANCH' | 'FUND' | 'SOLE_PROPRIETOR' | string;
   readonly legalForm: { readonly id: string };
 };
 
@@ -740,14 +736,14 @@ export type GleifData = {
   readonly allMatches: readonly GleifRecord[];
 };
 
-export type ValidationSeverity = "high" | "medium" | "low";
+export type ValidationSeverity = 'high' | 'medium' | 'low';
 
 export type ValidationCoverageLabel =
-  | "Strong Public"
-  | "Registry-led"
-  | "Ambiguous Entity"
-  | "Limited Private"
-  | "Thin";
+  | 'Strong Public'
+  | 'Registry-led'
+  | 'Ambiguous Entity'
+  | 'Limited Private'
+  | 'Thin';
 
 export type ValidationTension = {
   readonly check: string;
@@ -841,7 +837,7 @@ export type ClaudeFallbackResult = {
 
 export type WaterfallInput = {
   readonly query: string;
-  readonly hint?: "us-public" | "uk" | "global" | "private";
+  readonly hint?: 'us-public' | 'uk' | 'global' | 'private';
 };
 
 export type WaterfallResult = {
@@ -907,7 +903,7 @@ export type MonitoredCompanyRecord = {
   readonly id: string;
   readonly companyName: string;
   readonly companyId: string;
-  readonly status: "idle" | "watching";
+  readonly status: 'idle' | 'watching';
   readonly createdAt: string;
   readonly updatedAt: string;
 };
@@ -922,13 +918,14 @@ export type AnalysisCacheRecord = {
 
 export const placeholderConfidence: ConfidenceScore = {
   score: 50,
-  level: "medium",
-  rationale: "Placeholder confidence until source-backed scoring is implemented.",
+  level: 'medium',
+  rationale:
+    'Placeholder confidence until source-backed scoring is implemented.',
   components: [],
 };
 
 export const placeholderValidationReport: ValidationReport = {
-  coverageLabel: "Thin",
+  coverageLabel: 'Thin',
   dataQualityScore: 0,
   tensions: [],
   gaps: [],
@@ -936,76 +933,80 @@ export const placeholderValidationReport: ValidationReport = {
 };
 
 export const placeholderAnalysisReport: AnalysisReport = {
-  company: "Example Company",
+  company: 'Example Company',
   entityResolution: {
-    displayName: "Example Company",
-    canonicalName: "Example Company",
+    displayName: 'Example Company',
+    canonicalName: 'Example Company',
     primarySource: null,
     matchedSources: [],
     identifiers: [],
-    note: "No entity resolution has been generated yet.",
+    note: 'No entity resolution has been generated yet.',
   },
-  summary: "No analysis has been generated yet.",
+  summary: 'No analysis has been generated yet.',
   investmentMemo: {
-    recommendation: "watch",
-    conviction: "low",
-    coverageProfile: "Limited evidence",
+    recommendation: 'watch',
+    conviction: 'low',
+    coverageProfile: 'Limited evidence',
     verdict:
-      "Watch: the current report is still empty, so there is no defendable investment conclusion yet.",
-    whyNow: ["No evidence-backed investment memo is available yet."],
+      'Watch: the current report is still empty, so there is no defendable investment conclusion yet.',
+    whyNow: ['No evidence-backed investment memo is available yet.'],
     keyDisqualifier:
-      "There is not enough entity, valuation, or operating evidence on the page yet.",
+      'There is not enough entity, valuation, or operating evidence on the page yet.',
     thesis:
-      "No thesis can be defended until the report gathers grounded evidence.",
+      'No thesis can be defended until the report gathers grounded evidence.',
     antiThesis:
-      "The anti-thesis is simply that the evidence stack is still blank.",
+      'The anti-thesis is simply that the evidence stack is still blank.',
     businessSnapshot:
-      "Run an analysis to populate the business snapshot with grounded company and market context.",
+      'Run an analysis to populate the business snapshot with grounded company and market context.',
     valuationCase:
-      "Valuation support cannot be assessed until the report gathers structured market or filing evidence.",
+      'Valuation support cannot be assessed until the report gathers structured market or filing evidence.',
     upsideCase:
-      "Upside cannot be defended until the report has gathered valuation and company-specific evidence.",
+      'Upside cannot be defended until the report has gathered valuation and company-specific evidence.',
     downsideCase:
-      "Downside cannot be quantified until the report has gathered enough evidence to support a view.",
+      'Downside cannot be quantified until the report has gathered enough evidence to support a view.',
     keyRisks: [
       {
-        title: "No active evidence set",
-        detail: "The report is empty, so any recommendation would be premature.",
-        category: "data-quality",
+        title: 'No active evidence set',
+        detail:
+          'The report is empty, so any recommendation would be premature.',
+        category: 'data-quality',
         rank: 1,
       },
     ],
     catalystsToMonitor: [
-      "Run an analysis to generate the first evidence-backed investment read.",
+      'Run an analysis to generate the first evidence-backed investment read.',
     ],
     whatImprovesConfidence: [
-      "A fresh run with grounded company evidence will populate the memo.",
+      'A fresh run with grounded company evidence will populate the memo.',
     ],
     whatReducesConfidence: [
-      "Continuing without grounded evidence would make any recommendation less trustworthy.",
+      'Continuing without grounded evidence would make any recommendation less trustworthy.',
     ],
-    verifiedFacts: ["No verified facts are available until the first analysis run completes."],
+    verifiedFacts: [
+      'No verified facts are available until the first analysis run completes.',
+    ],
     reasonedInference: [
-      "The current state suggests waiting for a grounded evidence set before forming a view.",
+      'The current state suggests waiting for a grounded evidence set before forming a view.',
     ],
     unknowns: [
-      "All core inputs are still unknown until the first analysis run completes.",
+      'All core inputs are still unknown until the first analysis run completes.',
     ],
     logic: {
-      entityCertainty: "weak",
-      financialDepth: "thin",
-      valuationSupport: "weak",
-      streetSignals: "weak",
-      freshness: "stale",
-      dataGaps: "heavy",
-      tensions: "clear",
+      entityCertainty: 'weak',
+      financialDepth: 'thin',
+      valuationSupport: 'weak',
+      streetSignals: 'weak',
+      freshness: 'stale',
+      dataGaps: 'heavy',
+      tensions: 'clear',
       supportingReasons: [],
       confidenceLimitingReasons: [
-        "The report has not gathered any grounded evidence yet.",
+        'The report has not gathered any grounded evidence yet.',
       ],
     },
   },
-  narrative: "Run an analysis to populate this report with source-backed findings.",
+  narrative:
+    'Run an analysis to populate this report with source-backed findings.',
   sections: [],
   confidence: placeholderConfidence,
   metrics: [],
@@ -1023,5 +1024,5 @@ export const placeholderAnalysisReport: AnalysisReport = {
   validationReport: placeholderValidationReport,
   newsHighlights: [],
   sources: [],
-  updatedAt: "1970-01-01T00:00:00.000Z",
+  updatedAt: '1970-01-01T00:00:00.000Z',
 };
