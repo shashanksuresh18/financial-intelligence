@@ -8,8 +8,10 @@ import type {
   WaterfallResult,
 } from '@/lib/types';
 import {
+  hasUkCompanyNameSuffix,
   hasStrongCompanyNameMatch,
   isKnownPrivateCompanyQuery,
+  isKnownUkCompanyQuery,
 } from '@/lib/company-search';
 import { fetchClaudeFallbackData } from '@/lib/datasources/claude-fallback';
 import { fetchCompaniesHouseData } from '@/lib/datasources/companies-house';
@@ -19,7 +21,8 @@ import { fetchFmpData } from '@/lib/datasources/fmp';
 import { fetchGleifData } from '@/lib/datasources/gleif';
 import { fetchSecEdgarData } from '@/lib/datasources/sec-edgar';
 
-const CH_SKIP_MCAP_THRESHOLD_USDm = 50_000;
+const US_EXCHANGE_CODES = new Set(['NYSE', 'NASDAQ', 'AMEX', 'NYSEARCA']);
+const UK_EXCHANGE_CODES = new Set(['LSE', 'AIM', 'ISE']);
 const INTERNATIONAL_EXCHANGE_SUFFIXES = new Set([
   'L',
   'AS',
@@ -50,6 +53,13 @@ const INTERNATIONAL_EXCHANGE_SUFFIXES = new Set([
 
 type FinnhubFetchResult = Awaited<ReturnType<typeof fetchFinnhubData>>;
 type FmpFetchResult = Awaited<ReturnType<typeof fetchFmpData>>;
+type SecEdgarFetchResult = Awaited<ReturnType<typeof fetchSecEdgarData>>;
+
+type CompaniesHouseDecision = {
+  readonly skip: boolean;
+  readonly reason: string | null;
+  readonly entity: string;
+};
 
 function wrapSource<T>(
   source: DataSource,
@@ -91,19 +101,156 @@ function shouldSkipCompaniesHouseLookup(
   }
 
   const {
-    basicFinancials,
     isAmbiguous = false,
     symbol,
     symbolType,
   } = finnhubResult.data;
-  const marketCap = basicFinancials?.metric.marketCapitalization ?? 0;
 
   return (
     !isAmbiguous &&
     isUsPrimaryListingSymbol(symbol) &&
-    symbolType?.trim().toLowerCase() === 'common stock' &&
-    marketCap > CH_SKIP_MCAP_THRESHOLD_USDm
+    symbolType?.trim().toLowerCase() === 'common stock'
   );
+}
+
+function getSecEntityName(result: SecEdgarFetchResult): string | null {
+  if (!result.success) {
+    return null;
+  }
+
+  return result.data.companyInfo?.name ?? result.data.xbrlFacts?.entityName ?? null;
+}
+
+function hasUkListingSignal(
+  finnhubResult: FinnhubFetchResult,
+  secEdgarResult: SecEdgarFetchResult
+): boolean {
+  if (
+    finnhubResult.success &&
+    finnhubResult.data.symbol.trim().toUpperCase().endsWith('.L')
+  ) {
+    return true;
+  }
+
+  if (!secEdgarResult.success || secEdgarResult.data.companyInfo === null) {
+    return false;
+  }
+
+  return secEdgarResult.data.companyInfo.exchanges.some((exchange) =>
+    UK_EXCHANGE_CODES.has(exchange.trim().toUpperCase())
+  );
+}
+
+function hasExplicitUkNameSignal(
+  query: string,
+  finnhubResult: FinnhubFetchResult,
+  secEdgarResult: SecEdgarFetchResult,
+  fmpResult: DataSourceResult<FmpData> | null
+): boolean {
+  if (hasUkCompanyNameSuffix(query)) {
+    return true;
+  }
+
+  const candidateNames = [
+    finnhubResult.success ? finnhubResult.data.companyName : null,
+    getSecEntityName(secEdgarResult),
+    fmpResult?.data.companyName ?? null,
+  ];
+
+  return candidateNames.some(
+    (name) => name !== null && hasUkCompanyNameSuffix(name)
+  );
+}
+
+function hasValidSecFilings(secEdgarResult: SecEdgarFetchResult): boolean {
+  return (
+    secEdgarResult.success &&
+    secEdgarResult.data.cik.trim().length > 0 &&
+    secEdgarResult.data.recentFilings.length > 0
+  );
+}
+
+function getCompaniesHouseEntityName(params: {
+  readonly query: string;
+  readonly finnhubResult: FinnhubFetchResult;
+  readonly secEdgarResult: SecEdgarFetchResult;
+  readonly fmpResult: DataSourceResult<FmpData> | null;
+}): string {
+  return (
+    getSecEntityName(params.secEdgarResult) ??
+    (params.finnhubResult.success ? params.finnhubResult.data.companyName : null) ??
+    params.fmpResult?.data.companyName ??
+    params.query
+  );
+}
+
+function resolveCompaniesHouseDecision(params: {
+  readonly query: string;
+  readonly finnhubResult: FinnhubFetchResult;
+  readonly secEdgarResult: SecEdgarFetchResult;
+  readonly fmpResult: DataSourceResult<FmpData> | null;
+}): CompaniesHouseDecision {
+  const entity = getCompaniesHouseEntityName(params);
+  const hasExplicitUkSignal =
+    isKnownUkCompanyQuery(params.query) ||
+    hasUkListingSignal(params.finnhubResult, params.secEdgarResult) ||
+    hasExplicitUkNameSignal(
+      params.query,
+      params.finnhubResult,
+      params.secEdgarResult,
+      params.fmpResult
+    );
+
+  if (hasExplicitUkSignal) {
+    return {
+      skip: false,
+      reason: null,
+      entity,
+    };
+  }
+
+  if (isKnownPrivateCompanyQuery(params.query)) {
+    return {
+      skip: true,
+      reason: 'known_private_company',
+      entity,
+    };
+  }
+
+  if (hasValidSecFilings(params.secEdgarResult)) {
+    return {
+      skip: true,
+      reason: 'us_listed_with_sec_data',
+      entity,
+    };
+  }
+
+  if (shouldSkipCompaniesHouseLookup(params.finnhubResult)) {
+    return {
+      skip: true,
+      reason: 'us_primary_listing_on_finnhub',
+      entity,
+    };
+  }
+
+  if (
+    params.secEdgarResult.success &&
+    params.secEdgarResult.data.companyInfo?.exchanges.some((exchange) =>
+      US_EXCHANGE_CODES.has(exchange.trim().toUpperCase())
+    )
+  ) {
+    return {
+      skip: true,
+      reason: 'us_exchange_indicator',
+      entity,
+    };
+  }
+
+  return {
+    skip: false,
+    reason: null,
+    entity,
+  };
 }
 
 function isLikelyPrivate(
@@ -184,25 +331,35 @@ export async function runWaterfall(
   const gleifPromise = fetchGleifData(input.query);
 
   const finnhubResult = await finnhubPromise;
-  const skipCompaniesHouse =
-    shouldForcePrivateRoute || shouldSkipCompaniesHouseLookup(finnhubResult);
   const tickerHint =
     finnhubResult.success && finnhubResult.data.symbol.trim().length > 0
       ? finnhubResult.data.symbol
       : undefined;
-  const companiesHouseResultPromise = skipCompaniesHouse
-    ? Promise.resolve(null)
-    : fetchCompaniesHouseData(input.query);
 
-  const [edgarResult, chResult, gleifResult, fmpResult] = await Promise.all([
+  const [edgarResult, gleifResult, fmpResult] = await Promise.all([
     fetchSecEdgarData(input.query, { tickerHint }),
-    companiesHouseResultPromise,
     gleifPromise,
     fmpPromise,
   ]);
+  const fmp = fmpResult === null ? null : wrapSource('fmp', fmpResult);
+  const companiesHouseDecision = resolveCompaniesHouseDecision({
+    query: input.query,
+    finnhubResult,
+    secEdgarResult: edgarResult,
+    fmpResult: fmp,
+  });
+  const chResult = companiesHouseDecision.skip
+    ? null
+    : await fetchCompaniesHouseData(input.query);
+
+  if (companiesHouseDecision.skip) {
+    console.info('[market-data-agent] Companies House skipped', {
+      reason: companiesHouseDecision.reason,
+      entity: companiesHouseDecision.entity,
+    });
+  }
 
   const finnhub = wrapSource('finnhub', finnhubResult);
-  const fmp = fmpResult === null ? null : wrapSource('fmp', fmpResult);
   const secEdgar = wrapSource('sec-edgar', edgarResult);
   const companiesHouse =
     chResult === null ? null : wrapSource('companies-house', chResult);

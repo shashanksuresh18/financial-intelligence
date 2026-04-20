@@ -18,7 +18,9 @@ import type {
   ResearchNoteSection,
   SectionAuditItem,
   StreetView,
+  ValidationReport,
   ValuationView,
+  WaterfallResult,
 } from "@/lib/types";
 
 type InvestmentMemoInput = {
@@ -37,6 +39,8 @@ type InvestmentMemoInput = {
   readonly sections?: readonly ResearchNoteSection[];
   readonly narrative?: string;
   readonly sources: readonly DataSource[];
+  readonly validationReport: ValidationReport;
+  readonly waterfallResult: WaterfallResult;
 };
 
 const RECOMMENDATION_LABELS: Record<InvestmentRecommendation, string> = {
@@ -108,6 +112,28 @@ function firstSentences(text: string, count: number): string {
     .filter((part) => part.length > 0)
     .slice(0, count)
     .join(" ");
+}
+
+function shouldIgnoreCompaniesHouseRegistryData(
+  validationReport: ValidationReport
+): boolean {
+  return validationReport.tensions.some(
+    (tension) => tension.flag === "likely_wrong_entity"
+  );
+}
+
+function addUniqueListItem(items: string[], candidate: string | null): void {
+  if (candidate === null) {
+    return;
+  }
+
+  const normalized = candidate.trim();
+
+  if (normalized.length === 0 || items.includes(normalized)) {
+    return;
+  }
+
+  items.push(normalized);
 }
 
 function getSectionStatus(
@@ -415,18 +441,56 @@ function buildWhyNow(
   input: InvestmentMemoInput,
   logic: RecommendationLogic,
 ): readonly string[] {
+  const ignoreCompaniesHouse = shouldIgnoreCompaniesHouseRegistryData(
+    input.validationReport
+  );
   const whyNow = input.evidenceSignals
+    .filter(
+      (signal) =>
+        !ignoreCompaniesHouse || !signal.sources.includes("companies-house")
+    )
     .slice(0, 3)
     .map((signal) => `${signal.title}: ${firstSentence(stripSourceTags(signal.detail))}`);
-  const nextAccountsDue = findMetricText(input.metrics, "Next Accounts Due");
+  const nextAccountsDue = ignoreCompaniesHouse
+    ? null
+    : findMetricText(input.metrics, "Next Accounts Due");
+  const latestSecFiling = input.waterfallResult.secEdgar?.data.recentFilings[0] ?? null;
+  const latestEarnings = input.earningsHighlights[0];
+  const latestRecommendation = input.streetView?.latest ?? null;
   const latestHeadline = input.newsHighlights?.[0];
 
+  if (whyNow.length < 3 && ignoreCompaniesHouse && latestSecFiling !== null) {
+    addUniqueListItem(
+      whyNow,
+      `SEC filing marker: the latest ${latestSecFiling.form} was filed on ${latestSecFiling.filingDate}.`
+    );
+  }
+
+  if (whyNow.length < 3 && ignoreCompaniesHouse && latestEarnings !== undefined) {
+    addUniqueListItem(
+      whyNow,
+      latestEarnings.surprisePercent === null
+        ? `Earnings marker: ${latestEarnings.period} is the latest reported earnings checkpoint in the current evidence set.`
+        : `Earnings marker: ${latestEarnings.period} posted a ${formatSignedPercent(latestEarnings.surprisePercent)} surprise.`
+    );
+  }
+
+  if (whyNow.length < 3 && ignoreCompaniesHouse && latestRecommendation !== null) {
+    addUniqueListItem(
+      whyNow,
+      `Analyst posture: ${input.streetView?.consensusRating ?? "Hold"} consensus stands at ${latestRecommendation.bullish} bullish, ${latestRecommendation.neutral} hold, and ${latestRecommendation.bearish} bearish ratings.`
+    );
+  }
+
   if (whyNow.length < 3 && nextAccountsDue !== null) {
-    whyNow.push(`Next filing marker: the next accounts deadline is ${nextAccountsDue}.`);
+    addUniqueListItem(
+      whyNow,
+      `Next filing marker: the next accounts deadline is ${nextAccountsDue}.`
+    );
   }
 
   if (whyNow.length < 3 && latestHeadline !== undefined) {
-    whyNow.push(`News flow: ${latestHeadline.headline}`);
+    addUniqueListItem(whyNow, `News flow: ${latestHeadline.headline}`);
   }
 
   if (whyNow.length === 0) {
@@ -822,7 +886,11 @@ function buildCatalystsToMonitor(
   logic: RecommendationLogic,
 ): readonly string[] {
   const catalysts: string[] = [];
-  const nextAccountsDue = findMetricText(input.metrics, "Next Accounts Due");
+  const nextAccountsDue = shouldIgnoreCompaniesHouseRegistryData(
+    input.validationReport
+  )
+    ? null
+    : findMetricText(input.metrics, "Next Accounts Due");
   const latestEarnings = input.earningsHighlights[0];
   const latestHeadline = input.newsHighlights?.[0];
 
@@ -912,7 +980,11 @@ function buildVerifiedFacts(input: InvestmentMemoInput): readonly string[] {
   const currentPrice = findMetricNumber(input.metrics, "Current Price");
   const revenueGrowth = findMetricNumber(input.metrics, "Revenue Growth");
   const target = input.streetView?.priceTarget ?? input.valuationView?.priceTargetFallback ?? null;
-  const lastAccountsMadeUpTo = findMetricText(input.metrics, "Last Accounts Made Up To");
+  const lastAccountsMadeUpTo = shouldIgnoreCompaniesHouseRegistryData(
+    input.validationReport
+  )
+    ? null
+    : findMetricText(input.metrics, "Last Accounts Made Up To");
 
   facts.push(
     ticker !== undefined

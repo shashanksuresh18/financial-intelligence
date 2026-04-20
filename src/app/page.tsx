@@ -51,6 +51,10 @@ function getInitialActiveTab(): ActiveTab {
 }
 
 function getResultMeta(result: SearchResult): string {
+  if (typeof result.subtitle === "string" && result.subtitle.trim().length > 0) {
+    return result.subtitle;
+  }
+
   const parts = [
     result.ticker,
     result.jurisdiction,
@@ -58,6 +62,43 @@ function getResultMeta(result: SearchResult): string {
   ].filter((part): part is string => Boolean(part));
 
   return parts.join(" | ");
+}
+
+function getResultLabel(result: SearchResult): string {
+  return result.displayName ?? result.name;
+}
+
+function getResultBadges(result: SearchResult): {
+  readonly primary: string;
+  readonly primaryClassName: string;
+  readonly secondary?: string;
+  readonly secondaryClassName?: string;
+} {
+  if (result.source === "private") {
+    return {
+      primary: "Private",
+      primaryClassName:
+        "border-amber-400/20 bg-amber-950/40 text-amber-200",
+    };
+  }
+
+  if (typeof result.ticker === "string" && result.ticker.length > 0) {
+    return {
+      primary: result.ticker,
+      primaryClassName: "border-blue-400/20 bg-blue-950/40 text-blue-200",
+      secondary: result.jurisdiction ?? "Public",
+      secondaryClassName:
+        "border-zinc-800 bg-zinc-900/80 text-zinc-300",
+    };
+  }
+
+  return {
+    primary: "Verify",
+    primaryClassName: "border-rose-400/20 bg-rose-950/40 text-rose-200",
+    secondary: result.jurisdiction,
+    secondaryClassName:
+      "border-zinc-800 bg-zinc-900/80 text-zinc-400",
+  };
 }
 
 export default function Home(): JSX.Element {
@@ -302,8 +343,10 @@ export default function Home(): JSX.Element {
   };
 
   const handleSelect = async (result: SearchResult): Promise<void> => {
-    setQuery(result.name);
-    void runAnalysis(result.name);
+    const selectedCompany = getResultLabel(result);
+
+    setQuery(selectedCompany);
+    void runAnalysis(selectedCompany);
   };
 
   const handleSubmit = (submittedQuery: string): void => {
@@ -341,7 +384,7 @@ export default function Home(): JSX.Element {
       const response = await fetch("/api/monitor", {
         body: JSON.stringify({
           companyId: result.id,
-          companyName: result.name,
+          companyName: getResultLabel(result),
         }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -429,41 +472,76 @@ export default function Home(): JSX.Element {
   const trimmedQuery = query.trim();
 
   const showSearchResults = searchResults.length > 0;
+  const showSearchDropdown = !isAnalyzing && (trimmedQuery.length > 0 || isSearching);
   const hasReport = report !== null || isAnalyzing;
 
-  const searchDropdown = showSearchResults ? (
-    <ul className="absolute inset-x-0 z-20 mt-3 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.95)] backdrop-blur">
-      {searchResults.map((result) => (
-        <li
-          className="flex items-center justify-between gap-4 border-b border-zinc-800/80 px-4 py-4 last:border-b-0"
-          key={result.id}
-        >
-          <button
-            className="min-w-0 flex-1 text-left"
-            onClick={() => {
-              void handleSelect(result);
-            }}
-            type="button"
-          >
-            <span className="block text-sm font-medium text-zinc-100">
-              {result.name}
-            </span>
-            <span className="mt-1 block truncate text-xs uppercase tracking-[0.18em] text-zinc-500">
-              {getResultMeta(result) || "Cross-source company match"}
-            </span>
-          </button>
-          <button
-            className="rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-sky-200 transition hover:border-sky-300/35 hover:bg-sky-400/15"
-            onClick={() => {
-              void handleWatch(result);
-            }}
-            type="button"
-          >
-            Watch
-          </button>
-        </li>
-      ))}
-    </ul>
+  const searchDropdown = showSearchDropdown ? (
+    <div className="fi-dropdown-enter absolute inset-x-0 z-20 mt-3 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.95)] backdrop-blur">
+      {showSearchResults ? (
+        <ul>
+          {searchResults.map((result) => {
+            const badges = getResultBadges(result);
+
+            return (
+              <li className="border-b border-zinc-800/80 last:border-b-0" key={result.id}>
+                <div className="flex items-center justify-between gap-4 px-3 py-3">
+                  <button
+                    className="fi-focus-ring fi-interactive min-w-0 flex-1 rounded-xl border-l-2 border-transparent px-3 py-2 text-left hover:border-emerald-400 hover:bg-emerald-400/10"
+                    onClick={() => {
+                      void handleSelect(result);
+                    }}
+                    type="button"
+                  >
+                    <span className="block text-sm font-medium text-zinc-100">
+                      {getResultLabel(result)}
+                    </span>
+                    <span
+                      className={`mt-1 block truncate text-xs ${
+                        result.subtitle
+                          ? "text-zinc-400"
+                          : "uppercase tracking-[0.18em] text-zinc-500"
+                      }`}
+                    >
+                      {getResultMeta(result) || "Cross-source company match"}
+                    </span>
+                  </button>
+
+                  <div className="flex shrink-0 items-center gap-2">
+                    <div className="hidden flex-wrap items-center gap-2 sm:flex">
+                      <span
+                        className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${badges.primaryClassName}`}
+                      >
+                        {badges.primary}
+                      </span>
+                      {badges.secondary ? (
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${badges.secondaryClassName}`}
+                        >
+                          {badges.secondary}
+                        </span>
+                      ) : null}
+                    </div>
+                    <button
+                      className="fi-focus-ring fi-interactive rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200 hover:border-emerald-300/35 hover:bg-emerald-400/15"
+                      onClick={() => {
+                        void handleWatch(result);
+                      }}
+                      type="button"
+                    >
+                      Watch
+                    </button>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div className="px-4 py-5 text-sm font-light text-zinc-500">
+          {isSearching ? "Searching live sources..." : "Try searching for a company"}
+        </div>
+      )}
+    </div>
   ) : null;
 
   return (
@@ -478,10 +556,11 @@ export default function Home(): JSX.Element {
         >
           <button
             aria-selected={activeTab === "company"}
-            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "company"
-                ? "bg-zinc-800 text-zinc-100"
-                : "text-zinc-500 hover:text-zinc-300"
-              }`}
+            className={`fi-focus-ring fi-interactive rounded-xl border-b-2 px-4 py-2 text-sm font-medium ${
+              activeTab === "company"
+                ? "border-emerald-400 bg-zinc-800 text-zinc-100 shadow-sm"
+                : "border-transparent text-zinc-500 hover:text-zinc-300"
+            }`}
             onClick={() => {
               handleTabChange("company");
             }}
@@ -492,10 +571,11 @@ export default function Home(): JSX.Element {
           </button>
           <button
             aria-selected={activeTab === "themes"}
-            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${activeTab === "themes"
-                ? "bg-zinc-800 text-zinc-100"
-                : "text-zinc-500 hover:text-zinc-300"
-              }`}
+            className={`fi-focus-ring fi-interactive rounded-xl border-b-2 px-4 py-2 text-sm font-medium ${
+              activeTab === "themes"
+                ? "border-emerald-400 bg-zinc-800 text-zinc-100 shadow-sm"
+                : "border-transparent text-zinc-500 hover:text-zinc-300"
+            }`}
             onClick={() => {
               handleTabChange("themes");
             }}
@@ -506,11 +586,12 @@ export default function Home(): JSX.Element {
           </button>
         </div>
 
-        {activeTab === "company" ? (
-          <>
+        <div className="fi-fade-in" key={activeTab}>
+          {activeTab === "company" ? (
+            <>
             {!hasReport ? (
               <section className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_24rem]">
-                <div className="rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-6 py-7 shadow-[0_32px_120px_-72px_rgba(16,185,129,0.45)] backdrop-blur">
+                <div className="fi-fade-in rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-6 py-7 shadow-[0_32px_120px_-72px_rgba(16,185,129,0.45)] backdrop-blur">
                   <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-200/80">
                     Financial Intelligence
                   </p>
@@ -526,6 +607,7 @@ export default function Home(): JSX.Element {
                   <div className="relative mt-8">
                     <SearchBar
                       disabled={isAnalyzing}
+                      isSearching={isSearching}
                       value={query}
                       onSearch={handleSearch}
                       onSubmit={handleSubmit}
@@ -540,7 +622,7 @@ export default function Home(): JSX.Element {
                         <span className="mr-1 text-zinc-600">Try:</span>
                         {DEMO_COMPANIES.map((name) => (
                           <button
-                            className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-zinc-400 transition hover:border-emerald-400/25 hover:text-emerald-200"
+                            className="fi-focus-ring fi-interactive rounded-full border border-emerald-400/15 bg-emerald-400/10 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-emerald-100/80 hover:border-emerald-400/35 hover:bg-emerald-400/15 hover:shadow-[0_0_0_1px_rgba(52,211,153,0.18)]"
                             key={name}
                             onClick={() => {
                               setQuery(name);
@@ -572,14 +654,14 @@ export default function Home(): JSX.Element {
                   </div>
                 </div>
 
-                <div className="rounded-[2rem] border border-zinc-800 bg-zinc-950/75 p-6 shadow-[0_24px_80px_-48px_rgba(0,0,0,0.95)]">
+                <div className="fi-fade-in rounded-[2rem] border border-zinc-800 bg-zinc-950/75 p-6 shadow-[0_24px_80px_-48px_rgba(0,0,0,0.95)]">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                    Coverage
+                    Research Console
                   </p>
                   <div className="mt-5 grid gap-4">
                     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
                       <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Watched</p>
-                      <p className="mt-2 text-3xl font-semibold text-zinc-50">
+                      <p className="mt-2 text-3xl font-semibold text-emerald-200">
                         {monitorItems.length}
                       </p>
                     </div>
@@ -605,9 +687,10 @@ export default function Home(): JSX.Element {
                 </div>
               </section>
             ) : (
-              <div className="relative rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-5 py-4 backdrop-blur">
+              <div className="fi-fade-in relative rounded-[2rem] border border-zinc-800 bg-zinc-950/80 px-5 py-4 backdrop-blur">
                 <SearchBar
                   disabled={isAnalyzing}
+                  isSearching={isSearching}
                   value={query}
                   onSearch={handleSearch}
                   onSubmit={handleSubmit}
@@ -620,9 +703,9 @@ export default function Home(): JSX.Element {
             <section className="grid gap-8 xl:grid-cols-[minmax(0,1.35fr)_24rem]">
               <div className="space-y-4">
                 {isAnalyzing ? (
-                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-5 py-4 text-sm text-emerald-100">
+                  <div className="fi-fade-in rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-5 py-4 text-sm text-emerald-100">
                     <div className="flex items-start gap-4">
-                      <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/12">
+                      <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-400/10">
                         <svg
                           aria-hidden="true"
                           className="h-5 w-5 animate-spin text-emerald-200"
@@ -650,7 +733,7 @@ export default function Home(): JSX.Element {
                         <p className="font-semibold text-emerald-50">
                           Building analysis report for {pendingQuery ?? "the current query"}...
                         </p>
-                        <p className="mt-1 leading-6 text-emerald-100/85">
+                        <p className="mt-1 leading-6 text-emerald-100/80">
                           {ANALYSIS_STAGE_MESSAGES[analysisStageIndex]}
                         </p>
                         <p className="mt-2 text-xs uppercase tracking-[0.16em] text-emerald-200/70">
@@ -676,7 +759,7 @@ export default function Home(): JSX.Element {
                     />
                   </ErrorBoundary>
                 ) : isAnalyzing ? (
-                  <section className="rounded-[2rem] border border-zinc-800 bg-zinc-950/60 px-6 py-8 shadow-[0_24px_80px_-48px_rgba(0,0,0,0.95)]">
+                  <section className="fi-fade-in rounded-[2rem] border border-zinc-800 bg-zinc-950/60 px-6 py-8 shadow-[0_24px_80px_-48px_rgba(0,0,0,0.95)]">
                     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
                       Analysis In Progress
                     </p>
@@ -714,17 +797,17 @@ export default function Home(): JSX.Element {
                     </div>
                   </section>
                 ) : (
-                  <section className="rounded-[2rem] border border-dashed border-zinc-800 bg-zinc-950/60 px-6 py-10">
+                  <section className="fi-fade-in rounded-[2rem] border border-dashed border-zinc-800 bg-zinc-950/60 px-6 py-10">
                     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
                       No Active Report
                     </p>
                     <h2 className="mt-4 text-2xl font-semibold tracking-tight text-zinc-50">
-                      Select a company from autocomplete to generate the dashboard report.
+                      Search a company and the full memo will appear here.
                     </h2>
                     <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-400">
-                      The report panel will render confidence, narrative analysis,
-                      financial metrics, analyst consensus, and data-source attribution
-                      once a result is selected from the live search dropdown.
+                      The report panel will render memo verdicts, evidence coverage, financial
+                      metrics, analyst context, and data-source attribution once a result is
+                      selected from the live search dropdown.
                     </p>
                   </section>
                 )}
@@ -744,7 +827,10 @@ export default function Home(): JSX.Element {
                 />
                 <ActiveSnapshotPanel
                   isAnalyzing={isAnalyzing}
+                  liveQuery={trimmedQuery.length > 0 ? trimmedQuery : null}
+                  reportStatus={reportStatus}
                   report={report}
+                  watchedCount={monitorItems.length}
                 />
               </aside>
             </section>
@@ -752,8 +838,9 @@ export default function Home(): JSX.Element {
         ) : (
           <ErrorBoundary section="ThemePanel">
             <ThemePanel onCompanySelect={handleThemeCompanySelect} />
-          </ErrorBoundary>
-        )}
+            </ErrorBoundary>
+          )}
+        </div>
       </div>
     </main>
   );

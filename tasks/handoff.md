@@ -1,4 +1,82 @@
+# Sprint B — Phase 11 UI/UX Polish Review (2026-04-19)
+
+## UI Components Verified ✓
+
+| Component | Sprint B Changes Present |
+|-----------|--------------------------|
+| `SearchBar.tsx` | `fi-interactive fi-focus-ring` on form; `focus-within:border-emerald-400/30 focus-within:ring-2 focus-within:ring-emerald-400/50` focus ring; `fi-icon-pulse` animation on search icon when `isSearching`; emerald hover states on submit button |
+| `Report.tsx` | Hero header: `renderConfidenceStars` with emerald/amber/zinc colour tiers; `RECOMMENDATION_STYLES` (emerald=buy, blue=watch, amber=hold, rose=avoid); `COVERAGE_STYLES` gradient badges; `fi-fade-in` on root section |
+| `ThemePanel.tsx` | `exposureTone` with glowing emerald `shadow-[0_0_18px_...]` at ≥80; amber at ≥60; `TagSection` chips with rose for headwinds / emerald for key drivers / neutral hover for related-themes; `fi-focus-ring fi-interactive` on clickable chips; `ThemeSkeleton` with `animate-pulse` |
+| `MonitorList.tsx` | `getConfidenceDotClass` — emerald with glow at high, amber at medium, zinc at low; `fi-card-hover` on list items; active item `shadow-[0_20px_50px_-34px_rgba(16,185,129,0.38)]` emerald glow; remove button fades in on `group-hover`; `fi-focus-ring fi-interactive` on all buttons |
+| `ActiveSnapshotPanel.tsx` | `getCoverageBarClass` — emerald glow ≥80, amber ≥60, blue ≥40, zinc <40; animated coverage bar; `fi-fade-in` |
+| `InvestmentMemoPanel.tsx` | Conviction/recommendation badges; `STRESS_TEST_SEVERITY_STYLES` (rose/amber/zinc); mandate footer conditional on `hasStressTestContent` (Sprint A intact) |
+| `page.tsx` | `key={activeTab}` on tab-content `div` forces `fi-fade-in` re-mount on tab switch; `handleTabChange` persists to localStorage; `fi-fade-in` on hero, report, autocomplete, and empty-state sections |
+
+## Design System Consistency ✓
+
+| Colour | Usage |
+|--------|-------|
+| `emerald` | Buy, high confidence, active state, positive signals, watched count |
+| `amber` | Watch, hold, medium confidence, registry-led coverage |
+| `rose` | Avoid, red flags, high-severity gaps, remove button |
+| `blue` | Ticker badges, informational (watch recommendation in Report.tsx) |
+| `zinc` | Structure, borders, neutral states, low confidence |
+
+## Protected Files — Unchanged ✓
+
+| File | Status |
+|------|--------|
+| `src/lib/amakor-mandate.ts` | Unchanged (no diff vs HEAD) |
+| `prisma/schema.prisma` | Unchanged |
+| `package.json` | Unchanged |
+| `src/lib/agents/` (all) | CRLF-only diff — no content changes |
+| `src/lib/analyzer.ts` | Not in working-tree diff at all |
+
+Note: `src/app/api/analyze/route.ts` and `src/app/api/search/route.ts` have content changes, but these are pre-Sprint-B fixes (analyze route adds `validationReport`/`waterfallResult` to `normalizeReportShape`; search route adds known-private-company guard) both documented in Sprint A handoff.
+
+## Build Checks ✓
+
+| Check | Result |
+|-------|--------|
+| `npx tsc --noEmit` | ✓ zero errors |
+| `npm run lint` | ✓ zero warnings |
+| `npm run build` | ✓ production build succeeds (5.9s compile) |
+
+## Status: Ready for Antigravity
+
+---
+
 # Phase 9: Demo Hardening & Vercel Deployment
+
+## Round 5 Client Demo Fix
+
+### Issue
+
+Autocomplete search was still hitting Companies House directly for known private-company queries, so inputs such as `Anthropic`, `SpaceX`, and `Stripe` surfaced dormant UK shell-company records instead of the intended private-company research path.
+
+### Fix Implemented
+
+| File | Change | Result |
+|------|--------|--------|
+| `src/app/api/search/route.ts` | Added an early known-private-company guard using `isKnownPrivateCompanyQuery(query)`. Matching queries now bypass Companies House and the rest of the live search fan-out entirely, and return a single synthetic autocomplete result with `displayName`, `subtitle`, `source: "private"`, `ticker: null`, `companyNumber: null`, and `canUseAnalyze: true`. | Prevents dormant UK registry entities from entering the autocomplete list for known private companies. |
+| `src/lib/company-search.ts` | Reused the existing known-private-company capitalization map under `KNOWN_PRIVATE_COMPANY_DISPLAY_NAMES`, still exposed through `getKnownPrivateCompanyCanonicalName(query)`. | Synthetic autocomplete entries reuse the same canonical display names as the Round 4 analysis fix (`SpaceX`, `Anthropic`, `Stripe`, `OpenAI`, `xAI`, etc.). |
+| `src/lib/types.ts` | Expanded `SearchResult` to support optional `displayName`, `subtitle`, `source`, `companyNumber`, and `canUseAnalyze` fields, while allowing nullable `ticker` for synthetic private entries. | Search API and UI can represent private synthetic entries without breaking existing public-company results. |
+| `src/app/page.tsx` | Updated autocomplete rendering and selection to prefer `displayName`/`subtitle` when present, while still routing clicks into `/api/analyze` with the visible company label. Watch-list adds now also use the displayed label. | Private synthetic entries render cleanly in the dropdown and click through to the same analysis flow as public-company entries. |
+| `tasks/lessons.md` | Added a regression-prevention rule that autocomplete fixes must land on the live `/api/search` path, not just the analysis waterfall. | Captures the failure mode so the bug does not recur on a future search-only refactor. |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| `cmd /c npx tsc --noEmit` | ✓ zero errors |
+| `cmd /c npm run lint` | ✓ zero warnings |
+| `cmd /c npm run build` | ✓ production build succeeds |
+| Local built app: `GET /api/search?q=Anthropic` | ✓ returned exactly one synthetic result: `Anthropic`, `source: "private"`, subtitle `Private company — research via Exa Deep` |
+| Local built app: `GET /api/search?q=SpaceX` | ✓ returned exactly one synthetic result: `SpaceX`, `source: "private"`, subtitle `Private company — research via Exa Deep` |
+| Local built app: `GET /api/search?q=Stripe` | ✓ returned exactly one synthetic result: `Stripe`, `source: "private"`, subtitle `Private company — research via Exa Deep` |
+| Local built app: `GET /api/search?q=Apple` | Sandbox blocked outbound fetches, so live public results could not be proven here. The route did not take the private-company shortcut and attempted normal Finnhub / Companies House / GLEIF lookups, confirming unchanged code path for non-private names. |
+| Local built app: `GET /api/search?q=Klarna` | Sandbox blocked outbound fetches, but the request stayed on the normal public search path rather than returning a synthetic private result. |
+| Local built app: `GET /api/search?q=Greggs` | Sandbox blocked outbound fetches, but the request stayed on the normal public search path rather than returning a synthetic private result. |
 
 ## Status
 
@@ -1745,3 +1823,70 @@ Both completed successfully after implementation.
 - Retries for challenger failures
 - Challenger-driven changes to deterministic validation logic
 - Changes to `confidence.ts`, `entity-agent.ts`, `market-data-agent.ts`, or `validation-agent.ts`
+
+## Round 5 - Companies House Contamination Fix
+
+- `src/lib/agents/market-data-agent.ts`: replaced the old Finnhub-only Companies House skip check with a decision gate that waits for SEC EDGAR before deciding. Explicit UK signals now allow Companies House (`.L`/LSE-AIM-ISE, UK suffixes, `KNOWN_UK_COMPANIES`), while strong US evidence skips it with structured logging such as `reason: "us_listed_with_sec_data"`.
+- `src/lib/company-search.ts`: added `KNOWN_UK_COMPANIES`, `isKnownUkCompanyQuery()`, and `hasUkCompanyNameSuffix()` so the waterfall can distinguish genuine UK names like `Greggs`, `Shell`, and `Revolut` from US-listed common-name collisions.
+- `src/lib/agents/validation-agent.ts` and `src/lib/types.ts`: added a structured `likely_wrong_entity` validation flag when SEC and Companies House resolve to different names below the 70-point fuzzy-match threshold. The resulting high-severity tension is `Companies House and SEC reference different entities`.
+- `src/lib/investment-memo.ts` and `src/lib/agents/memo-agent.ts`: `whyNow` now ignores Companies House-derived signals and filing markers when that `likely_wrong_entity` flag is present, and falls back to SEC filing, earnings, and analyst-coverage reasons instead. The same guard also suppresses contaminated UK filing dates in catalysts and verified facts.
+
+## Sprint A — Round 5 + Phase 10 Review (2026-04-19)
+
+### Companies House Contamination Fix — Verified ✓
+
+| Check | Status |
+|-------|--------|
+| `resolveCompaniesHouseDecision` gate present in `market-data-agent.ts` | ✓ |
+| Checks: `isKnownUkCompanyQuery`, `hasUkListingSignal`, `hasExplicitUkNameSignal` | ✓ |
+| Skips if: `hasValidSecFilings`, `shouldSkipCompaniesHouseLookup`, US exchange indicator | ✓ |
+| `KNOWN_UK_COMPANIES` (30 entries: Greggs, Boohoo, ASOS, Shell, BP, HSBC Holdings, Barclays, Darktrace, Revolut, Monzo, Wise, etc.) | ✓ |
+| `isKnownUkCompanyQuery` and `hasUkCompanyNameSuffix` exported from `company-search.ts` | ✓ |
+| `runSecCompaniesHouseEntityCheck` flags `likely_wrong_entity` when name match < 70 pts | ✓ |
+| `shouldIgnoreCompaniesHouseRegistryData` guards `buildWhyNow`, `buildCatalystsToMonitor`, `buildVerifiedFacts` in `investment-memo.ts` | ✓ |
+| `console.info '[market-data-agent] Companies House skipped'` with structured reason | ✓ |
+
+### Mandate-Aware Challenger — Verified ✓
+
+| Check | Status |
+|-------|--------|
+| `src/lib/amakor-mandate.ts` exists; exports `AMAKOR_MANDATE_CONTEXT` with deal size (25–200M), revenue threshold (50M+), Meta Trends filter, red flags, portfolio examples, sourcing preference | ✓ |
+| `challenger-agent.ts` imports `AMAKOR_MANDATE_CONTEXT`; `SYSTEM_PROMPT` names "Amakor Capital" and injects full mandate | ✓ |
+| Severity calibration: red-flag conflict → HIGH, unverified revenue → HIGH, missing Meta Trend → HIGH | ✓ |
+| Counter-scenario must include one where mandate filter causes Amakor to pass | ✓ (in system prompt) |
+| `MAX_TOKENS = 2000`, JSON repair logic, `emptyChallengerReport()` fallback — all preserved | ✓ |
+| `InvestmentMemoPanel.tsx` footer `"Stress-tested against Amakor investment mandate"` shown only when `hasStressTestContent` | ✓ |
+| Footer styled `text-xs italic text-zinc-500` | ✓ |
+
+### Build Checks
+
+| Check | Result |
+|-------|--------|
+| `npx tsc --noEmit` | ✓ zero errors |
+| `npm run lint` | ✓ zero warnings |
+| `npm run build` | ✓ production build succeeds (10.4s compile) |
+
+### Functional Tests
+
+Curl tests against running dev server still needed in Antigravity (sandbox blocks outbound calls). Expected behavior when live:
+- `Kai` → `Why Now` does NOT mention UK Companies House (SEC/Finnhub will gate CH out)
+- `Apple` → `stressTest` references hardware red flag, revenue scale, deal-size mismatch
+
+### Status: Ready for Antigravity
+
+## Phase 10 - Mandate-Aware Challenger
+
+- Added [`src/lib/amakor-mandate.ts`](/C:/Users/USER/Desktop/finance_intelligence/src/lib/amakor-mandate.ts) with the Amakor Capital mandate context.
+- Updated [`src/lib/agents/challenger-agent.ts`](/C:/Users/USER/Desktop/finance_intelligence/src/lib/agents/challenger-agent.ts) so the system prompt now stress-tests memos against Amakor-specific filters: deal size, revenue threshold, Meta Trend fit, moat quality, sourcing path, and explicit red flags. JSON schema hardening, `MAX_TOKENS = 2000`, and empty fallback behavior were preserved unchanged.
+- Updated [`src/components/InvestmentMemoPanel.tsx`](/C:/Users/USER/Desktop/finance_intelligence/src/components/InvestmentMemoPanel.tsx) to show `Stress-tested against Amakor investment mandate` only when the stress-test section has real content.
+- Verification completed locally: `npx tsc --noEmit`, `npm run lint`, and `npm run build` all passed. The built app also served locally on port `3100`, and `/api/analyze` returned JSON for `Kai` and `Apple`, but outbound market-data and Anthropic calls are blocked in this sandbox so those runs degraded to thin fallback reports instead of exercising live SEC/Finnhub/Companies House and mandate-aware challenger behavior. The intended `Kai`, `Apple`, `Greggs`, `Revolut`, and `SpaceX` source-backed endpoint checks still need to be run by the user or in Antigravity.
+
+## Phase 11 - UI/UX Polish
+
+- Updated [`src/components/Report.tsx`](/C:/Users/USER/Desktop/finance_intelligence/src/components/Report.tsx) with a premium company hero, recommendation and conviction pills, confidence star row, stronger supporting-evidence presentation, custom metric cards, and interactive source-attribution chips with freshness tooltips.
+- Updated [`src/components/InvestmentMemoPanel.tsx`](/C:/Users/USER/Desktop/finance_intelligence/src/components/InvestmentMemoPanel.tsx) to split thesis, timing, valuation, upside, downside, monitoring, risks, and stress test into distinct premium cards with consistent dark-theme spacing, semantic accents, severity badges, and the Amakor mandate footer treatment.
+- Updated [`src/components/ThemePanel.tsx`](/C:/Users/USER/Desktop/finance_intelligence/src/components/ThemePanel.tsx) with a stronger theme header, exposure-map cards, driver and headwind pill layouts, related-theme actions, and skeleton-based loading states with cycling copy.
+- Updated [`src/components/SearchBar.tsx`](/C:/Users/USER/Desktop/finance_intelligence/src/components/SearchBar.tsx), [`src/components/MonitorList.tsx`](/C:/Users/USER/Desktop/finance_intelligence/src/components/MonitorList.tsx), and [`src/components/ActiveSnapshotPanel.tsx`](/C:/Users/USER/Desktop/finance_intelligence/src/components/ActiveSnapshotPanel.tsx) for clearer focus states, live-search feedback, compact watchlist cards, coverage progress, and cleaner sidebar status density.
+- Updated [`src/app/page.tsx`](/C:/Users/USER/Desktop/finance_intelligence/src/app/page.tsx) for cleaner Company/Themes tabs, improved search dropdown styling, richer empty states, demo chip polish, and the new sidebar prop wiring.
+- Updated [`src/app/globals.css`](/C:/Users/USER/Desktop/finance_intelligence/src/app/globals.css) with shared focus-ring, hover-lift, fade/drop animation, and interaction utility classes to keep the polish consistent across the touched components.
+- Verification completed locally: `cmd /c npx tsc --noEmit`, `cmd /c npm run lint`, and `cmd /c npm run build` all passed. `cmd /c npm run start` also booted successfully on port `3100`. `npm run dev` is blocked in this sandbox with `spawn EPERM`, and no browser automation tool is available here, so the required visual checks for Apple, SpaceX, EV charging themes, empty states, tab transitions, and 375px mobile still need to be done by the user in a normal local browser session before deployment.

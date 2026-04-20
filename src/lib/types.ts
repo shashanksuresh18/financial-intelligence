@@ -40,9 +40,14 @@ export type ConfidenceScore = {
 export type SearchResult = {
   readonly id: string;
   readonly name: string;
-  readonly ticker?: string;
+  readonly displayName?: string;
+  readonly subtitle?: string;
+  readonly source?: 'finnhub' | 'companies-house' | 'gleif' | 'private';
+  readonly ticker?: string | null;
+  readonly companyNumber?: string | null;
   readonly jurisdiction?: string;
   readonly description?: string;
+  readonly canUseAnalyze?: boolean;
 };
 
 export type EntityIdentifier = {
@@ -738,6 +743,8 @@ export type GleifData = {
 
 export type ValidationSeverity = 'high' | 'medium' | 'low';
 
+export type ValidationFlag = 'likely_wrong_entity';
+
 export type ValidationCoverageLabel =
   | 'Strong Public'
   | 'Registry-led'
@@ -750,6 +757,7 @@ export type ValidationTension = {
   readonly detail: string;
   readonly sources: readonly DataSource[];
   readonly severity: ValidationSeverity;
+  readonly flag?: ValidationFlag;
 };
 
 export type ValidationCrossCheck = {
@@ -757,6 +765,7 @@ export type ValidationCrossCheck = {
   readonly passed: boolean;
   readonly detail: string;
   readonly sources: readonly DataSource[];
+  readonly flag?: ValidationFlag;
 };
 
 export type ValidationGap = {

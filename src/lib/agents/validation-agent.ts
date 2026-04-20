@@ -12,10 +12,14 @@ import {
   extractLatestFact,
   REVENUE_CONCEPTS,
 } from "@/lib/datasources/sec-edgar";
+import { scoreCompanyNameMatch } from "@/lib/company-search";
 
 const DAY_MS = 86_400_000;
+const COMPANY_NAME_MATCH_THRESHOLD = 70;
 
 const CHECK_ENTITY_NAME_CONSISTENCY = "Entity name consistency";
+const CHECK_SEC_COMPANIES_HOUSE_ENTITY_MISMATCH =
+  "Companies House and SEC reference different entities";
 const CHECK_REVENUE = "Revenue — FMP vs SEC";
 const CHECK_MARKET_CAP = "Market cap — Finnhub vs FMP";
 const CHECK_EARNINGS_DIRECTION = "Earnings direction vs consensus";
@@ -202,6 +206,53 @@ function runRevenueCheck(result: WaterfallResult): ValidationCrossCheck | null {
     passed: divergencePct <= 5,
     detail: `SEC trailing revenue ${formatRevenue(secRevenue)} vs FMP forward estimate ${formatRevenue(fmpRevenue)} (${divergencePct.toFixed(1)}% gap; period mismatch expected).`,
     sources: ["sec-edgar", "fmp"],
+  };
+}
+
+function getSecEntityName(result: WaterfallResult): string | null {
+  return (
+    result.secEdgar?.data.companyInfo?.name ??
+    result.secEdgar?.data.xbrlFacts?.entityName ??
+    null
+  );
+}
+
+function getCompaniesHouseEntityName(result: WaterfallResult): string | null {
+  return (
+    result.companiesHouse?.data.profile?.company_name ??
+    result.companiesHouse?.data.company?.company_name ??
+    null
+  );
+}
+
+function runSecCompaniesHouseEntityCheck(
+  result: WaterfallResult,
+): ValidationCrossCheck | null {
+  if (result.secEdgar === null || result.companiesHouse === null) {
+    return null;
+  }
+
+  const secName = getSecEntityName(result);
+  const companiesHouseName = getCompaniesHouseEntityName(result);
+
+  if (secName === null || companiesHouseName === null) {
+    return null;
+  }
+
+  const matchScore = Math.max(
+    scoreCompanyNameMatch(secName, companiesHouseName),
+    scoreCompanyNameMatch(companiesHouseName, secName),
+  );
+  const passed = matchScore >= COMPANY_NAME_MATCH_THRESHOLD;
+
+  return {
+    check: CHECK_SEC_COMPANIES_HOUSE_ENTITY_MISMATCH,
+    passed,
+    detail: passed
+      ? `SEC filer "${secName}" and Companies House company "${companiesHouseName}" clear the ${COMPANY_NAME_MATCH_THRESHOLD}-point match threshold.`
+      : `SEC filer "${secName}" and Companies House company "${companiesHouseName}" score ${matchScore}, below the ${COMPANY_NAME_MATCH_THRESHOLD}-point match threshold; Companies House is likely the wrong entity.`,
+    sources: ["sec-edgar", "companies-house"],
+    ...(passed ? {} : { flag: "likely_wrong_entity" as const }),
   };
 }
 
@@ -395,6 +446,7 @@ function runCrossChecks(
 ): readonly ValidationCrossCheck[] {
   return [
     runEntityNameConsistencyCheck(result),
+    runSecCompaniesHouseEntityCheck(result),
     runRevenueCheck(result),
     runMarketCapCheck(result),
     runEarningsDirectionCheck(result),
@@ -409,6 +461,7 @@ function runCrossChecks(
 function getTensionSeverity(check: string): ValidationSeverity {
   switch (check) {
     case CHECK_ENTITY_NAME_CONSISTENCY:
+    case CHECK_SEC_COMPANIES_HOUSE_ENTITY_MISMATCH:
       return "high";
     case CHECK_REVENUE:
       return "medium";
@@ -437,6 +490,7 @@ function detectTensions(
       detail: crossCheck.detail,
       sources: crossCheck.sources,
       severity: getTensionSeverity(crossCheck.check),
+      ...(crossCheck.flag !== undefined ? { flag: crossCheck.flag } : {}),
     }));
 }
 

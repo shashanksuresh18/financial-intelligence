@@ -14,6 +14,8 @@ Review this file at the start of every session.
 ## Log
 (Add entries in reverse chronological order)
 
+- Cross-registry waterfalls must treat Companies House as jurisdictional evidence, not a default fallback. Explicit UK signals should allow it, strong US SEC/listing evidence should suppress it, and any SEC-vs-Companies House name mismatch must be flagged so downstream memo sections ignore contaminated UK registry cues.
+- Autocomplete fixes must be applied on the live `/api/search` path, not just the analysis waterfall. Known private-company queries need an early synthetic result and must bypass Companies House before dormant shell-company matches can enter the dropdown.
 - Known-private-company routing must bypass Companies House as well as Finnhub/FMP, and challenger-style JSON generation needs both enough token headroom and explicit truncation diagnostics/repair so dense memos do not collapse into empty arrays.
 - Regression fixes must be verified on the live execution path: parsing needs to handle wrapped model JSON, private-company guards must short-circuit the waterfall before bad market matches run, and persisted UI state must restore before first render when refresh behavior matters.
 - QA regressions clustered around integration seams: model IDs can silently deprecate, backend fields can be generated without UI coverage, and free-tier APIs can reject optional endpoints. Before calling a feature complete, verify model IDs are current, every persisted memo field is rendered where intended, and optional upstream failures degrade to partial coverage instead of breaking the run.

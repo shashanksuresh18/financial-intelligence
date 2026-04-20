@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { rankAndDedupeSearchResults } from "@/lib/company-search";
+import {
+  getKnownPrivateCompanyCanonicalName,
+  isKnownPrivateCompanyQuery,
+  rankAndDedupeSearchResults,
+} from "@/lib/company-search";
 import type { GleifRecord, SearchResult } from "@/lib/types";
 
 import { fetchCompaniesHouseData } from "@/lib/datasources/companies-house";
@@ -37,6 +41,21 @@ function toGleifSearchResults(
   }));
 }
 
+function toPrivateCompanySearchResult(query: string): SearchResult {
+  const displayName = getKnownPrivateCompanyCanonicalName(query) ?? query;
+
+  return {
+    id: `private:${displayName.toLowerCase()}`,
+    name: displayName,
+    displayName,
+    subtitle: "Private company — research via Exa Deep",
+    source: "private",
+    ticker: null,
+    companyNumber: null,
+    canUseAnalyze: true,
+  };
+}
+
 export async function GET(
   request: NextRequest,
 ): Promise<NextResponse<SearchApiResponse>> {
@@ -44,6 +63,13 @@ export async function GET(
 
   if (query.length === 0) {
     return NextResponse.json({ ok: true, results: [] });
+  }
+
+  if (isKnownPrivateCompanyQuery(query)) {
+    return NextResponse.json({
+      ok: true,
+      results: [toPrivateCompanySearchResult(query)],
+    });
   }
 
   const [finnhubResult, companiesHouseResult, gleifResult] = await Promise.all([

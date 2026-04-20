@@ -8,6 +8,7 @@ import {
   placeholderAnalysisReport,
   type AnalysisReport,
   type AnalyzeApiResponse,
+  type WaterfallResult,
 } from "@/lib/types";
 
 function serializeError(error: unknown): Record<string, unknown> {
@@ -51,6 +52,17 @@ function normalizeReportShape(report: AnalysisReport): AnalysisReport {
       report.validationReport ?? placeholderAnalysisReport.validationReport,
     sources: report.sources ?? [],
   };
+  const fallbackWaterfallResult: WaterfallResult = {
+    query: normalizedBase.company,
+    finnhub: null,
+    fmp: null,
+    secEdgar: null,
+    companiesHouse: null,
+    gleif: null,
+    exaDeep: null,
+    claudeFallback: null,
+    activeSources: normalizedBase.sources,
+  };
   const hasModernMemoShape =
     typeof report.investmentMemo === "object" &&
     report.investmentMemo !== null &&
@@ -76,6 +88,8 @@ function normalizeReportShape(report: AnalysisReport): AnalysisReport {
       sections,
       narrative: normalizedBase.narrative,
       sources: normalizedBase.sources,
+      validationReport: normalizedBase.validationReport,
+      waterfallResult: fallbackWaterfallResult,
     });
   const summary =
     investmentMemo.verdict.trim().length > 0

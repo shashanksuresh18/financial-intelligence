@@ -1,9 +1,10 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --font-geist-sans: "Helvetica Neue", Arial, sans-serif;
+  --background: #050816;
+  --foreground: #f4f4f5;
+  --font-geist-sans: "Aptos", "Segoe UI Variable", "SF Pro Display",
+    "Helvetica Neue", sans-serif;
   --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo,
     monospace;
 }
@@ -17,13 +18,123 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #050816;
+    --foreground: #f4f4f5;
   }
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.08), transparent 22%),
+    linear-gradient(180deg, #050816 0%, #080b12 52%, #050816 100%);
   color: var(--foreground);
   font-family: var(--font-sans);
+  font-feature-settings: "ss01" 1, "cv02" 1, "cv03" 1;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(16, 185, 129, 0.22);
+  color: #f4f4f5;
+}
+
+.fi-focus-ring {
+  outline: none;
+}
+
+.fi-focus-ring:focus-visible {
+  box-shadow:
+    0 0 0 1px rgba(52, 211, 153, 0.5),
+    0 0 0 4px rgba(16, 185, 129, 0.14);
+}
+
+.fi-interactive {
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 200ms ease,
+    transform 150ms ease,
+    opacity 150ms ease;
+}
+
+.fi-interactive:active {
+  transform: scale(0.98);
+}
+
+.fi-card-hover {
+  transition:
+    transform 200ms ease,
+    box-shadow 200ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.fi-card-hover:hover {
+  transform: translateY(-2px);
+}
+
+@keyframes fiFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fi-fade-in {
+  animation: fiFadeUp 300ms ease both;
+}
+
+@keyframes fiDropdownIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fi-dropdown-enter {
+  animation: fiDropdownIn 150ms ease both;
+}
+
+@keyframes fiIconPulse {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+.fi-icon-pulse {
+  animation: fiIconPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes fiLoadingCopy {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+.fi-loading-copy {
+  animation: fiLoadingCopy 1.8s ease-in-out infinite;
 }

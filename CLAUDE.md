@@ -92,6 +92,7 @@ curl "https://api.company-information.service.gov.uk/search/companies?q=Revolut"
 - After building the analyzer: test with "Apple" (US), "Revolut" (UK), "Deutsche Bank" (GLEIF), "SpaceX" (fallback).
 - After changing entity resolution, verify primary-listing selection and ambiguity filtering with HSBC, Shell, Virgin, Apple, and Microsoft scenarios.
 - In entity resolution, only explicitly-listed primary exchange suffixes qualify as Tier 0. Unknown 1-2 letter suffixes default to Tier 1, and ADR promotion must prefer Tier 0 common stock before Tier 1 fallback.
+- When SEC/Finnhub indicate a strong US-listed issuer, Companies House must stay gated off unless explicit UK signals justify it; if SEC and Companies House both resolve, validate the entity names before registry evidence enters memo sections.
 - When fixing a regression, verify the guard sits on the live execution path end-to-end; scoring tweaks or mount-time restores do not count unless refreshed UI state and waterfall routing prove the fix.
 - After building the frontend: open browser, test search, confirm report renders with confidence badge.
 - Run typecheck and lint before every commit.

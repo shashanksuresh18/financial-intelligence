@@ -61,6 +61,41 @@ const KNOWN_PRIVATE_COMPANIES = [
   'ByteDance',
 ] as const;
 
+const KNOWN_UK_COMPANIES = [
+  'Greggs',
+  'Boohoo',
+  'ASOS',
+  'Marks and Spencer',
+  'Tesco',
+  'Sainsbury',
+  'Shell',
+  'BP',
+  'AstraZeneca',
+  'GSK',
+  'HSBC Holdings',
+  'Barclays',
+  'Lloyds Banking Group',
+  'NatWest',
+  'Standard Chartered',
+  'Prudential',
+  'Darktrace',
+  'Revolut',
+  'Starling Bank',
+  'Monzo',
+  'Wise',
+  'Rolls-Royce',
+  'BAE Systems',
+  'Unilever',
+  'Reckitt Benckiser',
+  'Diageo',
+  'British American Tobacco',
+  'Ocado',
+  'JD Sports',
+  'Next',
+] as const;
+
+const UK_COMPANY_SUFFIX_PATTERN = /\b(?:plc|limited|ltd)\b$/i;
+
 const QUERY_STRIP_TERMS = new Set([
   'ag',
   'bank',
@@ -127,10 +162,13 @@ function compactKey(value: string): string {
 const KNOWN_PRIVATE_COMPANY_KEYS = new Set(
   KNOWN_PRIVATE_COMPANIES.map((company) => canonicalKey(company))
 );
-const KNOWN_PRIVATE_COMPANY_NAMES = new Map(
+const KNOWN_PRIVATE_COMPANY_DISPLAY_NAMES = new Map(
   KNOWN_PRIVATE_COMPANIES.map(
     (company) => [canonicalKey(company), company] as const
   )
+);
+const KNOWN_UK_COMPANY_KEYS = new Set(
+  KNOWN_UK_COMPANIES.map((company) => canonicalKey(company))
 );
 
 function tokenOverlap(
@@ -251,7 +289,15 @@ export function isKnownPrivateCompanyQuery(query: string): boolean {
 export function getKnownPrivateCompanyCanonicalName(
   query: string
 ): string | null {
-  return KNOWN_PRIVATE_COMPANY_NAMES.get(canonicalKey(query)) ?? null;
+  return KNOWN_PRIVATE_COMPANY_DISPLAY_NAMES.get(canonicalKey(query)) ?? null;
+}
+
+export function isKnownUkCompanyQuery(query: string): boolean {
+  return KNOWN_UK_COMPANY_KEYS.has(canonicalKey(query));
+}
+
+export function hasUkCompanyNameSuffix(value: string): boolean {
+  return UK_COMPANY_SUFFIX_PATTERN.test(value.trim());
 }
 
 function scoreSearchResult(

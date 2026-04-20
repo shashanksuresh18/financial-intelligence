@@ -127,6 +127,8 @@ export async function runMemoAgent(
     disagreementNotes: augmentedDisagreementNotes,
     sectionAudit: input.sectionAudit,
     sources: input.waterfallResult.activeSources,
+    validationReport: input.validationReport,
+    waterfallResult: input.waterfallResult,
   });
 
   const highSeverityCount =
