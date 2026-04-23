@@ -10,7 +10,16 @@ export type DataSource =
 export type ConfidenceLevel = 'low' | 'medium' | 'high';
 
 export type ConfidenceComponent = {
-  readonly key: 'identity' | 'financials' | 'street' | 'freshness';
+  readonly key:
+    | 'identity'
+    | 'financials'
+    | 'street'
+    | 'freshness'
+    | 'ambiguity-penalty'
+    | 'underwriting-depth-cap'
+    | 'underwriting-evidence-penalty'
+    | 'unresolved-tension-penalty'
+    | 'secondary-evidence-cap';
   readonly label: string;
   readonly score: number;
   readonly rationale: string;
@@ -187,6 +196,7 @@ export type InvestmentRecommendation = 'buy' | 'watch' | 'hold' | 'avoid';
 export type CoverageProfile =
   | 'Strong public coverage'
   | 'Mixed public coverage'
+  | 'Limited private coverage'
   | 'Registry-led private coverage'
   | 'Ambiguous entity'
   | 'Limited evidence';
@@ -211,6 +221,18 @@ export type RecommendationFreshness = 'fresh' | 'reasonable' | 'stale';
 
 export type RecommendationGapLoad = 'contained' | 'meaningful' | 'heavy';
 
+export type InvestmentMandateFit =
+  | 'Aligned mandate'
+  | 'Borderline mandate fit'
+  | 'Out of mandate';
+
+export type InvestmentRole =
+  | 'Core target'
+  | 'Reference public comp'
+  | 'Private diligence'
+  | 'Watchlist candidate'
+  | 'Entity resolution case';
+
 export type RecommendationLogic = {
   readonly entityCertainty: RecommendationLogicStrength;
   readonly financialDepth: 'strong' | 'adequate' | 'thin';
@@ -225,7 +247,11 @@ export type RecommendationLogic = {
 
 export type InvestmentMemo = {
   readonly recommendation: InvestmentRecommendation;
+  readonly displayRecommendationLabel: string;
   readonly conviction: ConfidenceLevel;
+  readonly convictionSummary: string;
+  readonly mandateFit: InvestmentMandateFit;
+  readonly role: InvestmentRole;
   readonly coverageProfile: CoverageProfile;
   readonly verdict: string;
   readonly whyNow: readonly string[];
@@ -286,12 +312,49 @@ export type SectionAuditItem = {
   readonly sources: readonly DataSource[];
 };
 
+export type NewsSentimentLabel = "positive" | "negative" | "neutral";
+
+export type NewsSentimentSummary = {
+  readonly score: number;
+  readonly label: NewsSentimentLabel;
+  readonly articleCount: number;
+  readonly positiveCount: number;
+  readonly negativeCount: number;
+  readonly neutralCount: number;
+  readonly rationale: string;
+};
+
+export type RecentDevelopmentCategory =
+  | 'earnings'
+  | 'leadership'
+  | 'analyst'
+  | 'regulatory'
+  | 'product'
+  | 'transaction'
+  | 'market-context';
+
+export type RecentDevelopmentImpact = 'positive' | 'negative' | 'neutral' | 'mixed';
+
 export type NewsHighlight = {
   readonly headline: string;
   readonly source: string;
   readonly publishedAt: string;
   readonly summary: string;
   readonly url: string;
+  readonly sentimentLabel: NewsSentimentLabel;
+  readonly sentimentScore: number;
+  readonly sentimentRationale: string;
+};
+
+export type RecentDevelopment = {
+  readonly headline: string;
+  readonly source: string;
+  readonly publishedAt: string;
+  readonly url: string;
+  readonly category: RecentDevelopmentCategory;
+  readonly impact: RecentDevelopmentImpact;
+  readonly whyItMatters: string;
+  readonly materialityScore: number;
 };
 
 export type EarningsHighlight = {
@@ -360,6 +423,8 @@ export type AnalysisReport = {
   readonly sectionAudit: readonly SectionAuditItem[];
   readonly validationReport: ValidationReport;
   readonly newsHighlights: readonly NewsHighlight[];
+  readonly newsSentiment: NewsSentimentSummary | null;
+  readonly recentDevelopments: readonly RecentDevelopment[];
   readonly sources: readonly DataSource[];
   readonly isAmbiguous?: boolean;
   readonly updatedAt: string;
@@ -954,7 +1019,12 @@ export const placeholderAnalysisReport: AnalysisReport = {
   summary: 'No analysis has been generated yet.',
   investmentMemo: {
     recommendation: 'watch',
+    displayRecommendationLabel: 'Watch',
     conviction: 'low',
+    convictionSummary:
+      'Data confidence is low, and investment conviction stays low until grounded evidence is available.',
+    mandateFit: 'Borderline mandate fit',
+    role: 'Watchlist candidate',
     coverageProfile: 'Limited evidence',
     verdict:
       'Watch: the current report is still empty, so there is no defendable investment conclusion yet.',
@@ -1032,6 +1102,8 @@ export const placeholderAnalysisReport: AnalysisReport = {
   sectionAudit: [],
   validationReport: placeholderValidationReport,
   newsHighlights: [],
+  newsSentiment: null,
+  recentDevelopments: [],
   sources: [],
   updatedAt: '1970-01-01T00:00:00.000Z',
 };

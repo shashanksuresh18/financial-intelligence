@@ -109,6 +109,7 @@ export function buildEntityResolution(
   const gleifName = gleifRecord?.attributes.entity.legalName.name ?? null;
   const finnhubSymbol = result.finnhub?.data.symbol ?? null;
   const finnhubName = result.finnhub?.data.companyName ?? null;
+  const exaDeepName = result.exaDeep?.data.companyName ?? null;
   const companiesHouseCompany = shouldUseCompaniesHouseCorroboration({
     query,
     finnhubName,
@@ -120,6 +121,7 @@ export function buildEntityResolution(
   const baseCanonicalName =
     secName ??
     finnhubName ??
+    exaDeepName ??
     companiesHouseCompany?.company_name ??
     gleifName ??
     query;
@@ -137,8 +139,10 @@ export function buildEntityResolution(
         ? 'finnhub'
         : companiesHouseCompany !== null
           ? 'companies-house'
-          : gleifName !== null
+        : gleifName !== null
             ? 'gleif'
+            : exaDeepName !== null
+              ? 'exa-deep'
             : finnhubSymbol !== null
               ? 'finnhub'
               : result.claudeFallback !== null
@@ -242,6 +246,8 @@ export function buildEntityResolution(
             : 'Resolved through Companies House registry records.'
           : primarySource === 'gleif'
             ? 'Resolved through LEI registry data with limited filing corroboration.'
+            : primarySource === 'exa-deep'
+              ? 'Resolved through private-company research synthesis with limited registry or filing corroboration.'
             : 'Resolution depends primarily on the original query and fallback evidence.';
 
   return {

@@ -1,4 +1,6 @@
-import type { JSX } from "react";
+"use client";
+
+import { type JSX, useState } from "react";
 
 import type {
   AnalysisReport,
@@ -15,9 +17,12 @@ import EarningsHighlightsPanel from "./EarningsHighlightsPanel";
 import InsiderActivityPanel from "./InsiderActivityPanel";
 import InvestmentMemoPanel from "./InvestmentMemoPanel";
 import PeerComparisonPanel from "./PeerComparisonPanel";
+import RecentDevelopmentsPanel from "./RecentDevelopmentsPanel";
 import RecentNewsPanel from "./RecentNewsPanel";
+import RecommendationLegendInfo from "./RecommendationLegendInfo";
 import ResearchOpsPanel from "./ResearchOpsPanel";
 import ReportDeltaPanel from "./ReportDeltaPanel";
+import SectionInfoTooltip from "./SectionInfoTooltip";
 import SectionAuditPanel from "./SectionAuditPanel";
 import StreetViewPanel from "./StreetViewPanel";
 import ValuationOverviewPanel from "./ValuationOverviewPanel";
@@ -116,6 +121,23 @@ const RECOMMENDATION_STYLES: Record<
   watch: "border-blue-400/25 bg-blue-950/40 text-blue-200",
   hold: "border-amber-400/25 bg-amber-950/40 text-amber-200",
   avoid: "border-rose-400/25 bg-rose-950/40 text-rose-200",
+};
+
+const ROLE_STYLES: Record<AnalysisReport["investmentMemo"]["role"], string> = {
+  "Core target": "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
+  "Reference public comp": "border-sky-400/20 bg-sky-400/10 text-sky-200",
+  "Private diligence": "border-violet-400/20 bg-violet-400/10 text-violet-200",
+  "Watchlist candidate": "border-zinc-700 bg-zinc-900 text-zinc-300",
+  "Entity resolution case": "border-rose-400/20 bg-rose-400/10 text-rose-200",
+};
+
+const MANDATE_FIT_STYLES: Record<
+  AnalysisReport["investmentMemo"]["mandateFit"],
+  string
+> = {
+  "Aligned mandate": "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
+  "Borderline mandate fit": "border-amber-400/20 bg-amber-400/10 text-amber-200",
+  "Out of mandate": "border-sky-400/20 bg-sky-400/10 text-sky-200",
 };
 
 const COVERAGE_STYLES: Record<string, string> = {
@@ -227,6 +249,10 @@ function formatMetricValue(metric: FinancialMetric): string {
     return value;
   }
 
+  if (metric.label === "Market Cap (USDm)" || metric.label === "Enterprise Value (USDm)") {
+    return COMPACT_CURRENCY_FORMATTER.format(value * 1_000_000);
+  }
+
   if (format === "percent") {
     return formatPercentValue(value);
   }
@@ -305,11 +331,20 @@ function renderConfidenceStars(level: AnalysisReport["confidence"]["level"]): re
   ));
 }
 
+function titleCase(value: string): string {
+  return value.length === 0 ? value : `${value[0].toUpperCase()}${value.slice(1)}`;
+}
+
+function getSourceStatusLabel(isActive: boolean): string {
+  return isActive ? "Active in current memo" : "Inactive this run";
+}
+
 export function Report({
   report,
   onRefresh,
   isRefreshing = false,
 }: ReportProps) {
+  const [selectedSource, setSelectedSource] = useState<DataSource | null>(null);
   const narrativeParagraphs = getNarrativeParagraphs(report.narrative);
   const ticker = getIdentifierValue(report, "Ticker");
   const exchange = getIdentifierValue(report, "Exchange");
@@ -317,6 +352,12 @@ export function Report({
   const metricCards = buildMetricCards(report.metrics);
   const coverageStyle =
     COVERAGE_STYLES[report.validationReport.coverageLabel] ?? COVERAGE_STYLES.Thin;
+  const activeSources = SOURCE_ORDER.filter((source) => report.sources.includes(source));
+  const inactiveSources = SOURCE_ORDER.filter((source) => !report.sources.includes(source));
+  const orderedSources = [...activeSources, ...inactiveSources];
+  const displayedSource = selectedSource ?? orderedSources[0] ?? null;
+  const displayedSourceIsActive =
+    displayedSource === null ? false : report.sources.includes(displayedSource);
 
   return (
     <section className="fi-fade-in overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-950/78 shadow-[0_32px_120px_-60px_rgba(15,23,42,1)]">
@@ -352,29 +393,62 @@ export function Report({
           </div>
 
           <div className="xl:max-w-md xl:text-right">
-            <div className="flex flex-wrap gap-2 xl:justify-end">
-              <span
-                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${RECOMMENDATION_STYLES[report.investmentMemo.recommendation]}`}
-              >
-                {report.investmentMemo.recommendation[0]?.toUpperCase()}
-                {report.investmentMemo.recommendation.slice(1)}
+              <div className="flex flex-wrap gap-2 xl:justify-end">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${RECOMMENDATION_STYLES[report.investmentMemo.recommendation]}`}
+                  >
+                    {report.investmentMemo.displayRecommendationLabel}
+                  </span>
+                  <RecommendationLegendInfo />
+                </div>
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${ROLE_STYLES[report.investmentMemo.role]}`}
+                >
+                {report.investmentMemo.role}
               </span>
-              <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1 text-xs uppercase tracking-[0.18em] text-zinc-300">
-                {report.investmentMemo.conviction} conviction
+              <span
+                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${MANDATE_FIT_STYLES[report.investmentMemo.mandateFit]}`}
+              >
+                {report.investmentMemo.mandateFit}
               </span>
             </div>
 
-            <div className="mt-5">
-              <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">Confidence</p>
-              <div
-                aria-label={`${report.confidence.level} confidence`}
-                className="mt-2 flex items-center gap-1 text-xl xl:justify-end"
-              >
-                {renderConfidenceStars(report.confidence.level)}
+            <div className="mt-5 space-y-4">
+              <div>
+                <div className="flex items-center gap-2 xl:justify-end">
+                  <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">Data Confidence</p>
+                  <SectionInfoTooltip
+                    align="end"
+                    content="How strong the evidence base is: entity match, source quality, freshness, filing depth, and valuation support."
+                  />
+                </div>
+                <div
+                  aria-label={`${report.confidence.level} data confidence`}
+                  className="mt-2 flex items-center gap-1 text-xl xl:justify-end"
+                >
+                  {renderConfidenceStars(report.confidence.level)}
+                </div>
+                <p className="mt-2 text-sm font-light text-zinc-400">
+                  {report.confidence.score}/100 data confidence
+                </p>
               </div>
-              <p className="mt-2 text-sm font-light text-zinc-400">
-                {report.confidence.score}/100 confidence score
-              </p>
+
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Investment Conviction</p>
+                  <SectionInfoTooltip
+                    align="end"
+                    content="How strong the actual investment case is. High evidence quality can still lead to low conviction."
+                  />
+                </div>
+                <p className="mt-2 text-sm font-medium text-zinc-100">
+                  {titleCase(report.investmentMemo.conviction)}
+                </p>
+                <p className="mt-2 text-sm font-light leading-relaxed text-zinc-400">
+                  {report.investmentMemo.convictionSummary}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -411,6 +485,11 @@ export function Report({
       </div>
 
       <div className="space-y-6 px-6 py-6">
+        <RecentDevelopmentsPanel
+          items={report.recentDevelopments}
+          summary={report.newsSentiment}
+        />
+
         <InvestmentMemoPanel memo={report.investmentMemo} />
 
         <details
@@ -419,7 +498,12 @@ export function Report({
         >
           <summary className="fi-interactive flex cursor-pointer list-none flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">Supporting Evidence</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">Supporting Evidence</p>
+                <SectionInfoTooltip
+                  content="The underlying metrics, source detail, and audit trail behind the memo."
+                />
+              </div>
               <h3 className="mt-3 text-2xl font-semibold text-zinc-100">
                 Audit Trail And Evidence Stack
               </h3>
@@ -505,40 +589,68 @@ export function Report({
               </div>
 
               <div className="mt-6">
-                <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">Data Source Attribution</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">Data Source Attribution</p>
+                  <SectionInfoTooltip
+                    content="Which sources contributed to this report and what each source was used for."
+                  />
+                </div>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {SOURCE_ORDER.map((source) => {
+                  {orderedSources.map((source) => {
                     const isActive = report.sources.includes(source);
+                    const isSelected = displayedSource === source;
 
                     return (
-                      <div className="group relative" key={source}>
-                        <button
-                          aria-label={`${SOURCE_DETAILS[source].label} ${isActive ? "active" : "inactive"} source`}
+                      <button
+                        aria-label={`${SOURCE_DETAILS[source].label} ${isActive ? "active" : "inactive"} source`}
+                        aria-pressed={isSelected}
                           className={`fi-focus-ring fi-interactive rounded-full border px-3 py-1.5 text-xs uppercase tracking-[0.18em] ${
-                            isActive
-                              ? "border-emerald-400/25 text-emerald-200"
-                              : "border-zinc-800 text-zinc-500 opacity-60"
+                            isSelected
+                              ? isActive
+                                ? "border-emerald-300/45 bg-emerald-400/10 text-emerald-100"
+                                : "border-zinc-700 bg-zinc-900 text-zinc-200"
+                              : isActive
+                                ? "border-emerald-400/25 text-emerald-200"
+                                : "border-zinc-800 text-zinc-500 opacity-60"
                           }`}
                           title={`${SOURCE_DETAILS[source].label} • ${isActive ? "Active" : "Inactive"} • ${formatUpdatedAt(report.updatedAt)}`}
+                          key={source}
+                          onClick={() => {
+                            setSelectedSource(source);
+                          }}
+                          onFocus={() => {
+                            setSelectedSource(source);
+                          }}
+                          onMouseEnter={() => {
+                            setSelectedSource(source);
+                          }}
                           type="button"
                         >
                           {SOURCE_DETAILS[source].label}
                         </button>
-                        <div className="pointer-events-none absolute left-0 top-full z-10 mt-2 w-64 rounded-2xl border border-zinc-800 bg-zinc-950/95 p-3 text-left opacity-0 shadow-[0_20px_50px_-35px_rgba(0,0,0,0.95)] transition group-hover:opacity-100 group-focus-within:opacity-100">
-                          <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-                            {isActive ? "Active in current memo" : "Inactive this run"}
-                          </p>
-                          <p className="mt-2 text-xs font-light leading-relaxed text-zinc-300">
-                            {SOURCE_DETAILS[source].note}
-                          </p>
-                          <p className="mt-2 text-xs uppercase tracking-[0.16em] text-zinc-500">
-                            Freshness {formatUpdatedAt(report.updatedAt)}
-                          </p>
-                        </div>
-                      </div>
                     );
                   })}
                 </div>
+                {displayedSource !== null ? (
+                  <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
+                          {getSourceStatusLabel(displayedSourceIsActive)}
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-zinc-100">
+                          {SOURCE_DETAILS[displayedSource].label}
+                        </p>
+                      </div>
+                      <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">
+                        Freshness {formatUpdatedAt(report.updatedAt)}
+                      </p>
+                    </div>
+                    <p className="mt-3 text-sm font-light leading-relaxed text-zinc-300">
+                      {SOURCE_DETAILS[displayedSource].note}
+                    </p>
+                  </div>
+                ) : null}
               </div>
             </section>
 
@@ -605,7 +717,10 @@ export function Report({
                 <ValuationOverviewPanel valuationView={report.valuationView} />
                 <PeerComparisonPanel items={report.peerComparison} />
                 <ReportDeltaPanel items={report.deltas} />
-                <RecentNewsPanel items={report.newsHighlights} />
+                <RecentNewsPanel
+                  items={report.newsHighlights}
+                  summary={report.newsSentiment}
+                />
               </div>
 
               <div className="space-y-6">

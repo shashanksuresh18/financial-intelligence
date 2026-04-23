@@ -3,10 +3,15 @@ import type { ReactNode } from "react";
 import type {
   ConfidenceLevel,
   InvestmentMemo,
+  InvestmentMandateFit,
   InvestmentRecommendation,
   InvestmentRisk,
+  InvestmentRole,
   ValidationSeverity,
 } from "@/lib/types";
+
+import RecommendationLegendInfo from "./RecommendationLegendInfo";
+import SectionInfoTooltip from "./SectionInfoTooltip";
 
 type InvestmentMemoPanelProps = {
   readonly memo: InvestmentMemo;
@@ -25,17 +30,24 @@ const CONVICTION_STYLES: Record<ConfidenceLevel, string> = {
   low: "border-zinc-700 bg-zinc-900 text-zinc-300",
 };
 
-const RECOMMENDATION_LABELS: Record<InvestmentRecommendation, string> = {
-  buy: "Buy",
-  watch: "Watch",
-  hold: "Hold",
-  avoid: "Avoid",
-};
-
 const CONVICTION_LABELS: Record<ConfidenceLevel, string> = {
   high: "High",
   medium: "Medium",
   low: "Low",
+};
+
+const ROLE_STYLES: Record<InvestmentRole, string> = {
+  "Core target": "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
+  "Reference public comp": "border-sky-400/20 bg-sky-400/10 text-sky-200",
+  "Private diligence": "border-violet-400/20 bg-violet-400/10 text-violet-200",
+  "Watchlist candidate": "border-zinc-700 bg-zinc-900 text-zinc-300",
+  "Entity resolution case": "border-rose-400/20 bg-rose-400/10 text-rose-200",
+};
+
+const MANDATE_FIT_STYLES: Record<InvestmentMandateFit, string> = {
+  "Aligned mandate": "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
+  "Borderline mandate fit": "border-amber-400/20 bg-amber-400/10 text-amber-200",
+  "Out of mandate": "border-sky-400/20 bg-sky-400/10 text-sky-200",
 };
 
 const STRESS_TEST_SEVERITY_STYLES: Record<ValidationSeverity, string> = {
@@ -49,15 +61,20 @@ function SectionCard({
   title,
   children,
   className = "",
+  infoText,
 }: {
   readonly eyebrow: string;
   readonly title: string;
   readonly children: ReactNode;
   readonly className?: string;
+  readonly infoText?: string;
 }) {
   return (
     <section className={`rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 ${className}`}>
-      <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">{eyebrow}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">{eyebrow}</p>
+        {infoText ? <SectionInfoTooltip content={infoText} /> : null}
+      </div>
       <h4 className="mt-3 text-2xl font-semibold text-zinc-100">{title}</h4>
       <div className="mt-4">{children}</div>
     </section>
@@ -158,26 +175,43 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
       <section className="rounded-[2rem] border border-zinc-800 bg-gradient-to-br from-zinc-950 via-zinc-900/80 to-emerald-950/10 p-6 shadow-[0_26px_80px_-44px_rgba(0,0,0,0.98)]">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-4xl">
-            <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">Investment Memo</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">Investment Memo</p>
+              <SectionInfoTooltip
+                content="This is the current house view based on available evidence. It is not a pure summary of Street opinion."
+              />
+            </div>
             <h3 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-100">
               {memo.verdict}
             </h3>
             <p className="mt-4 text-sm font-light leading-relaxed text-zinc-400">
-              A decision-first view of the opportunity set, framed around upside asymmetry,
-              downside risk, and what still needs to be proven.
+              {memo.convictionSummary}
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2 xl:max-w-xl xl:justify-end">
-            <span
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${RECOMMENDATION_STYLES[memo.recommendation]}`}
-            >
-              {RECOMMENDATION_LABELS[memo.recommendation]}
-            </span>
+            <div className="flex items-center gap-2">
+              <span
+                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${RECOMMENDATION_STYLES[memo.recommendation]}`}
+              >
+                {memo.displayRecommendationLabel}
+              </span>
+              <RecommendationLegendInfo />
+            </div>
             <span
               className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${CONVICTION_STYLES[memo.conviction]}`}
             >
-              {CONVICTION_LABELS[memo.conviction]} Conviction
+              {CONVICTION_LABELS[memo.conviction]} Investment Conviction
+            </span>
+            <span
+              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${ROLE_STYLES[memo.role]}`}
+            >
+              {memo.role}
+            </span>
+            <span
+              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${MANDATE_FIT_STYLES[memo.mandateFit]}`}
+            >
+              {memo.mandateFit}
             </span>
             <span className="rounded-full border border-zinc-800 bg-zinc-950/80 px-3 py-1 text-xs uppercase tracking-[0.18em] text-zinc-300">
               {memo.coverageProfile}
@@ -190,6 +224,7 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
         <SectionCard
           className="border-l-4 border-l-emerald-400/45"
           eyebrow="Core Thesis"
+          infoText="The main argument for why this name may matter, plus the strongest case against it."
           title="Thesis"
         >
           <p className="text-sm font-light leading-relaxed text-zinc-300">{memo.thesis}</p>
@@ -201,7 +236,11 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
           </div>
         </SectionCard>
 
-        <SectionCard eyebrow="Business Snapshot" title="What The Business Is">
+        <SectionCard
+          eyebrow="Business Snapshot"
+          infoText="A quick description of what the company does and why it matters commercially."
+          title="What The Business Is"
+        >
           <p className="text-sm font-light leading-relaxed text-zinc-300">
             {memo.businessSnapshot}
           </p>
@@ -209,7 +248,11 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-        <SectionCard eyebrow="Timing" title="Why Now">
+        <SectionCard
+          eyebrow="Timing"
+          infoText="Why this name matters now. Read it as timing context and current setup, not proof that the case is already underwriteable."
+          title="Why Now"
+        >
           <BulletList
             emptyText="No time-sensitive drivers were extracted on this run."
             items={memo.whyNow}
@@ -223,7 +266,11 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
           </div>
         </SectionCard>
 
-        <SectionCard eyebrow="Valuation" title="Valuation Case">
+        <SectionCard
+          eyebrow="Valuation"
+          infoText="How the current valuation is framed. For private companies, valuation context may be partial and less reliable."
+          title="Valuation Case"
+        >
           <p className="text-sm font-light leading-relaxed text-zinc-300">{memo.valuationCase}</p>
         </SectionCard>
       </div>
@@ -232,6 +279,7 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
         <SectionCard
           className="bg-emerald-400/5"
           eyebrow="Upside Case"
+          infoText="What has to go right for the current upside case to work. These are the key conditions, not a base-case forecast."
           title="What Has To Go Right"
         >
           <p className="text-sm font-light leading-relaxed text-zinc-300">{memo.upsideCase}</p>
@@ -240,6 +288,7 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
         <SectionCard
           className="bg-rose-400/5"
           eyebrow="Downside Case"
+          infoText="What can break the case. Read this as the main failure modes, not just generic uncertainty."
           title="What Can Break"
         >
           <p className="text-sm font-light leading-relaxed text-zinc-300">{memo.downsideCase}</p>
@@ -247,14 +296,22 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <SectionCard eyebrow="Logic Support" title="Supporting Reasons">
+        <SectionCard
+          eyebrow="Logic Support"
+          infoText="The strongest evidence supporting the current view. These are the facts doing the most analytical work in the memo."
+          title="Supporting Reasons"
+        >
           <BulletList
             emptyText="No explicit supporting reasons were generated."
             items={memo.logic.supportingReasons}
           />
         </SectionCard>
 
-        <SectionCard eyebrow="Logic Limits" title="Confidence-Limiting Reasons">
+        <SectionCard
+          eyebrow="Logic Limits"
+          infoText="The main reasons conviction is capped. These are the evidence gaps, tensions, or underwriting weaknesses you should not gloss over."
+          title="Confidence-Limiting Reasons"
+        >
           <BulletList
             emptyText="No explicit confidence limits were generated."
             items={memo.logic.confidenceLimitingReasons}
@@ -262,7 +319,11 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
         </SectionCard>
       </div>
 
-      <SectionCard eyebrow="Monitoring" title="Catalysts And Confidence">
+      <SectionCard
+        eyebrow="Monitoring"
+        infoText="The specific evidence or events that would upgrade or weaken the current recommendation."
+        title="What Changes The View"
+      >
         <div className="space-y-5">
           <div>
             <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Near-term catalysts</p>
@@ -277,7 +338,7 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
           <div className="grid gap-4 lg:grid-cols-2">
             <div>
               <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
-                What improves confidence
+                What would improve the view
               </p>
               <div className="mt-4">
                 <BulletList
@@ -289,7 +350,7 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
 
             <div>
               <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
-                What reduces confidence
+                What would weaken the view
               </p>
               <div className="mt-4">
                 <BulletList
@@ -302,7 +363,11 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
         </div>
       </SectionCard>
 
-      <SectionCard eyebrow="Key Risks" title="Principal Risks">
+      <SectionCard
+        eyebrow="Key Risks"
+        infoText="The most important things that can break the thesis or block underwriting."
+        title="Principal Risks"
+      >
         {memo.keyRisks.length === 0 ? (
           <p className="text-sm font-light leading-relaxed text-zinc-500">
             No explicit risks were generated on this run.
@@ -338,6 +403,7 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
         <SectionCard
           className="bg-rose-950/20"
           eyebrow="Stress Test"
+          infoText="A challenger review that attacks the thesis, assumptions, and evidence quality."
           title="Red-Team View"
         >
           <div className="space-y-5">

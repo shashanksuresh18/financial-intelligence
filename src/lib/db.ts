@@ -40,6 +40,13 @@ type AnalysisCacheFindUniqueArgs = {
   };
 };
 
+type AnalysisCacheFindManyArgs = {
+  readonly orderBy?: {
+    readonly createdAt?: "asc" | "desc";
+  };
+  readonly take?: number;
+};
+
 type AnalysisCacheUpsertArgs = {
   readonly where: {
     readonly companyId: string;
@@ -481,6 +488,65 @@ const analysisCache = {
           return row === undefined ? null : toAnalysisCacheRow(row);
         },
         memory: () => memoryStore.analysisCache.get(args.where.companyId) ?? null,
+      },
+    );
+  },
+
+  async findMany(args?: AnalysisCacheFindManyArgs): Promise<readonly AnalysisCacheRow[]> {
+    return withStorageFallback(
+      "analysisCache.findMany",
+      {
+        turso: async () => {
+          const direction = args?.orderBy?.createdAt === "asc" ? "ASC" : "DESC";
+          const limitClause =
+            typeof args?.take === "number" && args.take > 0 ? `LIMIT ${args.take}` : "";
+          const result = await getTursoClient().execute(`
+            SELECT id, companyId, report, createdAt, expiresAt
+            FROM AnalysisCache
+            ORDER BY createdAt ${direction}
+            ${limitClause};
+          `);
+
+          return resultRows<{
+            readonly id: string;
+            readonly companyId: string;
+            readonly report: string;
+            readonly createdAt: string;
+            readonly expiresAt: string;
+          }>(result).map((row) => toAnalysisCacheRow(row));
+        },
+        sqlite: () => {
+          const direction = args?.orderBy?.createdAt === "asc" ? "ASC" : "DESC";
+          const limitClause =
+            typeof args?.take === "number" && args.take > 0 ? `LIMIT ${args.take}` : "";
+          const rows = querySqliteRows<{
+            readonly id: string;
+            readonly companyId: string;
+            readonly report: string;
+            readonly createdAt: string;
+            readonly expiresAt: string;
+          }>(
+            `
+              SELECT id, companyId, report, createdAt, expiresAt
+              FROM AnalysisCache
+              ORDER BY createdAt ${direction}
+              ${limitClause};
+            `,
+          );
+
+          return rows.map((row) => toAnalysisCacheRow(row));
+        },
+        memory: () => {
+          const rows = [...memoryStore.analysisCache.values()].sort((left, right) => {
+            const delta = left.createdAt.getTime() - right.createdAt.getTime();
+
+            return args?.orderBy?.createdAt === "asc" ? delta : -delta;
+          });
+
+          return typeof args?.take === "number" && args.take > 0
+            ? rows.slice(0, args.take)
+            : rows;
+        },
       },
     );
   },

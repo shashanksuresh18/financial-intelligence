@@ -1,5 +1,7 @@
 import type { ValuationView } from "@/lib/types";
 
+import SectionInfoTooltip from "./SectionInfoTooltip";
+
 type ValuationOverviewPanelProps = {
   readonly valuationView: ValuationView | null;
 };
@@ -36,9 +38,15 @@ export function ValuationOverviewPanel({
     return (
       <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
         <div className="mb-4">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
-            Valuation
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
+              Valuation
+            </h3>
+            <SectionInfoTooltip
+              align="end"
+              content="How the current valuation is framed. For private companies, valuation context may be partial and less reliable."
+            />
+          </div>
           <p className="mt-1 text-sm text-zinc-500">
             No structured valuation history is available yet for this company.
           </p>
@@ -58,9 +66,15 @@ export function ValuationOverviewPanel({
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
       <div className="mb-4">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
-          Valuation
-        </h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
+            Valuation
+          </h3>
+          <SectionInfoTooltip
+            align="end"
+            content="How the current valuation is framed. For private companies, valuation context may be partial and less reliable."
+          />
+        </div>
         <p className="mt-1 text-sm text-zinc-500">
           Current multiples, historical context, and forward framing when estimate coverage is
           available.

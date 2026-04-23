@@ -8,6 +8,11 @@ import MonitorList from "@/components/MonitorList";
 import Report from "@/components/Report";
 import SearchBar from "@/components/SearchBar";
 import ThemePanel from "@/components/ThemePanel";
+import {
+  hasUkCompanyNameSuffix,
+  isKnownUkCompanyQuery,
+  scoreCompanyNameMatch,
+} from "@/lib/company-search";
 import { DEMO_COMPANIES } from "@/lib/demo-names";
 import type {
   AnalysisReport,
@@ -28,27 +33,12 @@ const ANALYSIS_STAGE_MESSAGES = [
   "Generating the institutional note and reconciling evidence coverage.",
   "Finalizing the report payload and saving the latest snapshot.",
 ] as const;
+const STRONG_AUTO_ANALYZE_SCORE = 70;
 
 type MonitorSortKey = "confidence" | "freshness" | "evidence-depth";
 type ActiveTab = "company" | "themes";
 
 const ACTIVE_TAB_STORAGE_KEY = "fin:activeTab";
-
-function getInitialActiveTab(): ActiveTab {
-  if (typeof window === "undefined") {
-    return "company";
-  }
-
-  try {
-    const savedTab = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-
-    return savedTab === "company" || savedTab === "themes"
-      ? savedTab
-      : "company";
-  } catch {
-    return "company";
-  }
-}
 
 function getResultMeta(result: SearchResult): string {
   if (typeof result.subtitle === "string" && result.subtitle.trim().length > 0) {
@@ -66,6 +56,62 @@ function getResultMeta(result: SearchResult): string {
 
 function getResultLabel(result: SearchResult): string {
   return result.displayName ?? result.name;
+}
+
+function shouldAvoidRegistryAutoSelection(
+  submittedQuery: string,
+  result: SearchResult,
+): boolean {
+  return (
+    result.source === "companies-house" &&
+    submittedQuery.trim().split(/\s+/).filter((token) => token.length > 0).length === 1 &&
+    !hasUkCompanyNameSuffix(submittedQuery) &&
+    !isKnownUkCompanyQuery(submittedQuery)
+  );
+}
+
+function pickPreferredSearchResult(
+  submittedQuery: string,
+  results: readonly SearchResult[],
+): SearchResult | null {
+  if (results.length === 0) {
+    return null;
+  }
+
+  const normalizedQuery = submittedQuery.trim();
+  const normalizedTicker = normalizedQuery.toUpperCase();
+  const directTickerMatch =
+    results.find(
+      (result) =>
+        typeof result.ticker === "string" &&
+        result.ticker.toUpperCase() === normalizedTicker,
+    ) ?? null;
+
+  if (directTickerMatch !== null) {
+    return directTickerMatch;
+  }
+
+  const rankedResults = results
+    .map((result) => ({
+      result,
+      score: scoreCompanyNameMatch(normalizedQuery, getResultLabel(result)),
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  const bestCandidate = rankedResults.find(
+    ({ result, score }) =>
+      score >= STRONG_AUTO_ANALYZE_SCORE &&
+      !shouldAvoidRegistryAutoSelection(normalizedQuery, result) &&
+      (result.source === "private" ||
+        typeof result.ticker === "string" ||
+        result.source === "finnhub"),
+  );
+
+  if (bestCandidate !== undefined) {
+    return bestCandidate.result;
+  }
+
+  return null;
 }
 
 function getResultBadges(result: SearchResult): {
@@ -102,7 +148,7 @@ function getResultBadges(result: SearchResult): {
 }
 
 export default function Home(): JSX.Element {
-  const [activeTab, setActiveTab] = useState<ActiveTab>(() => getInitialActiveTab());
+  const [activeTab, setActiveTab] = useState<ActiveTab>("company");
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<readonly SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -121,6 +167,18 @@ export default function Home(): JSX.Element {
   const analysisAbortRef = useRef<AbortController | null>(null);
   const latestSearchRequestRef = useRef(0);
   const latestAnalysisRequestRef = useRef(0);
+
+  useEffect(() => {
+    try {
+      const savedTab = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+
+      if (savedTab === "company" || savedTab === "themes") {
+        setActiveTab(savedTab);
+      }
+    } catch {
+      // localStorage can fail in private browsing or restricted environments.
+    }
+  }, []);
 
   useEffect(() => {
     const loadMonitorItems = async (): Promise<void> => {
@@ -169,6 +227,25 @@ export default function Home(): JSX.Element {
       clearInterval(interval);
     };
   }, [analysisStartedAt, isAnalyzing]);
+
+  const fetchSearchResultsNow = async (
+    nextQuery: string,
+  ): Promise<readonly SearchResult[] | null> => {
+    try {
+      const response = await fetch(`/api/search?q=${encodeURIComponent(nextQuery)}`);
+      const data = (await response.json()) as SearchApiResponse;
+
+      if (!response.ok || !data.ok) {
+        setError(data.error ?? "Search failed");
+        return null;
+      }
+
+      return data.results;
+    } catch {
+      setError("Search failed");
+      return null;
+    }
+  };
 
   const runSearch = async (
     nextQuery: string,
@@ -271,7 +348,7 @@ export default function Home(): JSX.Element {
       }
 
       setReport(data.report);
-      setReportQuery(data.report.company);
+      setReportQuery(analysisQuery);
     } catch (error) {
       if (requestId === latestAnalysisRequestRef.current) {
         if (error instanceof Error && error.name === "AbortError") {
@@ -362,12 +439,45 @@ export default function Home(): JSX.Element {
       return;
     }
 
-    if (searchResults.length === 0) {
-      void runAnalysis(trimmedQuery);
-      return;
-    }
+    void (async () => {
+      if (searchTimeoutRef.current !== null) {
+        clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = null;
+      }
 
-    handleSearch(submittedQuery);
+      const resolvedResults =
+        searchResults.length > 0
+          ? searchResults
+          : await fetchSearchResultsNow(trimmedQuery);
+
+      if (resolvedResults === null) {
+        void runAnalysis(trimmedQuery);
+        return;
+      }
+
+      const preferredResult = pickPreferredSearchResult(
+        trimmedQuery,
+        resolvedResults,
+      );
+
+      if (preferredResult !== null) {
+        const selectedCompany = getResultLabel(preferredResult);
+
+        setQuery(selectedCompany);
+        setSearchResults([]);
+        void runAnalysis(selectedCompany);
+        return;
+      }
+
+      setSearchResults(resolvedResults);
+
+      if (resolvedResults.length > 0) {
+        setError("Select a company from the search results to avoid analyzing the wrong entity.");
+        return;
+      }
+
+      void runAnalysis(trimmedQuery);
+    })();
   };
 
   const handleThemeCompanySelect = (companyName: string): void => {
@@ -403,7 +513,8 @@ export default function Home(): JSX.Element {
   };
 
   const handleRefresh = (): void => {
-    const targetQuery = reportQuery ?? report?.company ?? query.trim();
+    const currentQuery = query.trim();
+    const targetQuery = currentQuery || reportQuery || report?.company || "";
 
     if (targetQuery.length < MIN_QUERY_LENGTH) {
       return;
@@ -472,7 +583,10 @@ export default function Home(): JSX.Element {
   const trimmedQuery = query.trim();
 
   const showSearchResults = searchResults.length > 0;
-  const showSearchDropdown = !isAnalyzing && (trimmedQuery.length > 0 || isSearching);
+  const showSearchDropdown =
+    !isAnalyzing &&
+    trimmedQuery.length >= MIN_QUERY_LENGTH &&
+    (isSearching || showSearchResults);
   const hasReport = report !== null || isAnalyzing;
 
   const searchDropdown = showSearchDropdown ? (

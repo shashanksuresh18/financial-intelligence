@@ -27,6 +27,19 @@ export const NET_INCOME_CONCEPTS = [
   'NetIncomeLoss',
   'NetIncomeLossAvailableToCommonStockholdersBasic',
 ] as const;
+export const GROSS_PROFIT_CONCEPTS = [
+  'GrossProfit',
+] as const;
+export const OPERATING_CASH_FLOW_CONCEPTS = [
+  'NetCashProvidedByUsedInOperatingActivities',
+  'NetCashProvidedByUsedInOperatingActivitiesContinuingOperations',
+  'NetCashProvidedByUsedInContinuingOperations',
+] as const;
+export const CAPEX_CONCEPTS = [
+  'PaymentsToAcquirePropertyPlantAndEquipment',
+  'CapitalExpendituresIncurredButNotYetPaid',
+  'PropertyPlantAndEquipmentAdditions',
+] as const;
 const MAX_RECENT_FILINGS = 20;
 
 type EdgarSearchHit = {

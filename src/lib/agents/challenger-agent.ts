@@ -4,7 +4,12 @@ import { AMAKOR_MANDATE_CONTEXT } from '@/lib/amakor-mandate';
 import type {
   ChallengerItem,
   ChallengerReport,
+  CoverageGap,
+  DisagreementNote,
+  EvidenceSignal,
+  FinancialMetric,
   InvestmentMemo,
+  SectionAuditItem,
   ValidationReport,
   ValidationSeverity,
   WaterfallResult,
@@ -40,6 +45,11 @@ type ChallengerAgentInput = {
   readonly draftMemo: InvestmentMemo;
   readonly waterfallResult: WaterfallResult;
   readonly validationReport: ValidationReport;
+  readonly metrics: readonly FinancialMetric[];
+  readonly evidenceSignals: readonly EvidenceSignal[];
+  readonly coverageGaps: readonly CoverageGap[];
+  readonly disagreementNotes: readonly DisagreementNote[];
+  readonly sectionAudit: readonly SectionAuditItem[];
 };
 
 type ChallengerPayload = {
@@ -72,6 +82,8 @@ function formatDraftMemo(memo: InvestmentMemo): string {
   return [
     `Recommendation: ${memo.recommendation}`,
     `Conviction: ${memo.conviction}`,
+    `Role: ${memo.role}`,
+    `Mandate fit: ${memo.mandateFit}`,
     `Verdict: ${memo.verdict}`,
     `Thesis: ${memo.thesis}`,
     `Anti-thesis: ${memo.antiThesis}`,
@@ -107,11 +119,116 @@ function formatValidationSummary(validationReport: ValidationReport): string {
   ].join('\n');
 }
 
+function findMetricNumber(
+  metrics: readonly FinancialMetric[],
+  label: string
+): number | null {
+  const metric = metrics.find((item) => item.label === label);
+  return metric !== undefined && typeof metric.value === 'number'
+    ? metric.value
+    : null;
+}
+
+function findMetricText(
+  metrics: readonly FinancialMetric[],
+  label: string
+): string | null {
+  const metric = metrics.find((item) => item.label === label);
+  return metric !== undefined && typeof metric.value === 'string'
+    ? metric.value
+    : null;
+}
+
+type ChallengerEvidenceContext = {
+  readonly hasGrossMargin: boolean;
+  readonly hasProfitabilityMetrics: boolean;
+  readonly hasRevenueAnchor: boolean;
+  readonly hasValuationAnchor: boolean;
+  readonly hasInvestorContext: boolean;
+  readonly hasCompetitorContext: boolean;
+  readonly hasPrimaryFilings: boolean;
+  readonly hasStreetContext: boolean;
+};
+
+function buildEvidenceContext(
+  input: ChallengerAgentInput
+): ChallengerEvidenceContext {
+  return {
+    hasGrossMargin: findMetricNumber(input.metrics, 'Gross Margin') !== null,
+    hasProfitabilityMetrics:
+      findMetricNumber(input.metrics, 'Operating Margin') !== null ||
+      findMetricNumber(input.metrics, 'Net Margin') !== null ||
+      findMetricNumber(input.metrics, 'Free Cash Flow Margin') !== null,
+    hasRevenueAnchor:
+      findMetricNumber(input.metrics, 'Revenue') !== null ||
+      findMetricText(input.metrics, 'Estimated Revenue') !== null,
+    hasValuationAnchor:
+      findMetricText(input.metrics, 'Last Valuation') !== null ||
+      input.draftMemo.valuationCase.trim().length > 0,
+    hasInvestorContext:
+      findMetricText(input.metrics, 'Key Investors') !== null,
+    hasCompetitorContext:
+      findMetricText(input.metrics, 'Competitors') !== null,
+    hasPrimaryFilings:
+      input.waterfallResult.secEdgar?.data.xbrlFacts !== null &&
+      input.waterfallResult.secEdgar !== null,
+    hasStreetContext:
+      input.waterfallResult.finnhub !== null || input.waterfallResult.fmp !== null,
+  };
+}
+
+function formatEvidenceContext(
+  input: ChallengerAgentInput
+): string {
+  const evidence = buildEvidenceContext(input);
+  const sectionStates =
+    input.sectionAudit.length === 0
+      ? ['- No section-audit metadata attached']
+      : input.sectionAudit.map(
+          (item) => `- ${item.section}: ${item.status}`
+        );
+  const memoNamedGaps =
+    input.coverageGaps.length === 0
+      ? ['- None']
+      : input.coverageGaps
+          .slice(0, 3)
+          .map((item) => `- ${item.title}: ${item.detail}`);
+  const keySignals =
+    input.evidenceSignals.length === 0
+      ? ['- None']
+      : input.evidenceSignals
+          .slice(0, 3)
+          .map((item) => `- ${item.title}: ${item.detail}`);
+
+  return [
+    `- Gross margin metric present: ${evidence.hasGrossMargin ? 'yes' : 'no'}`,
+    `- Profitability metrics present: ${evidence.hasProfitabilityMetrics ? 'yes' : 'no'}`,
+    `- Revenue scale anchor present: ${evidence.hasRevenueAnchor ? 'yes' : 'no'}`,
+    `- Valuation anchor present: ${evidence.hasValuationAnchor ? 'yes' : 'no'}`,
+    `- Investor context present: ${evidence.hasInvestorContext ? 'yes' : 'no'}`,
+    `- Competitor context present: ${evidence.hasCompetitorContext ? 'yes' : 'no'}`,
+    `- Primary filing facts present: ${evidence.hasPrimaryFilings ? 'yes' : 'no'}`,
+    `- Street context present: ${evidence.hasStreetContext ? 'yes' : 'no'}`,
+    'Section support:',
+    ...sectionStates,
+    'Memo already names these gaps:',
+    ...memoNamedGaps,
+    'Current key signals:',
+    ...keySignals,
+  ].join('\n');
+}
+
 function buildChallengerPrompt(input: ChallengerAgentInput): string {
   const activeSources =
     input.waterfallResult.activeSources.length > 0
       ? input.waterfallResult.activeSources.join(', ')
       : 'none';
+  const privateCompanyRead =
+    (input.waterfallResult.exaDeep !== null ||
+      input.waterfallResult.claudeFallback !== null) &&
+    input.waterfallResult.finnhub === null &&
+    input.waterfallResult.fmp === null &&
+    input.waterfallResult.secEdgar === null;
 
   return `DRAFT MEMO for ${input.company}:
 ${formatDraftMemo(input.draftMemo)}
@@ -120,10 +237,22 @@ VALIDATION REPORT:
 ${formatValidationSummary(input.validationReport)}
 
 ACTIVE SOURCES: ${activeSources}
+READ TYPE: ${privateCompanyRead ? 'private-company research' : 'public/registry mixed'}
+
+AVAILABLE REPORT EVIDENCE:
+${formatEvidenceContext(input)}
+
+Challenge calibration rules:
+- If this is a private-company research read, do NOT treat absence of SEC XBRL, Street targets, or earnings-surprise panels as evidence of business weakness by itself.
+- For private companies, focus instead on revenue visibility, funding/valuation support, customer traction, moat quality, unit economics, and mandate fit.
+- Only raise SEC, analyst-coverage, or public-market objections when the memo itself wrongly relies on those frameworks.
+- If a metric or concept is already present in the report, do NOT criticize it as completely absent. At most, say it is present but still weakly analyzed, unresolved, or insufficient for underwriting.
+- Do NOT simply restate a gap the memo already names unless you sharpen it materially.
+- Prefer fewer, stronger challenges. Avoid repetitive template criticism.
 
 Your task: identify exactly -
-- 3 unstated assumptions embedded in the memo's thesis or recommendation
-- 3 evidence gaps the memo understates or ignores
+- 2 unstated assumptions embedded in the memo's thesis or recommendation
+- 2 evidence gaps the memo understates or ignores
 - 2 counter-scenarios in which the bear case materialises
 
 For each item provide:
@@ -135,11 +264,9 @@ Respond ONLY with valid JSON matching this exact schema (no markdown fences, no 
 {
   "unstatedAssumptions": [
     {"claim": "...", "severity": "...", "citedSource": "..."},
-    {"claim": "...", "severity": "...", "citedSource": "..."},
     {"claim": "...", "severity": "...", "citedSource": "..."}
   ],
   "evidenceGaps": [
-    {"claim": "...", "severity": "...", "citedSource": "..."},
     {"claim": "...", "severity": "...", "citedSource": "..."},
     {"claim": "...", "severity": "...", "citedSource": "..."}
   ],
@@ -485,11 +612,103 @@ function findChallengerPayload(value: unknown): ChallengerPayload | null {
   return null;
 }
 
-function createChallengerReport(payload: ChallengerPayload): ChallengerReport {
+function hasAbsenceLanguage(claim: string): boolean {
+  return /\bno\b|\bmissing\b|\babsent\b|\bnot (?:present|provided|available|analyzed|disclosed|attached)\b|\blacks?\b/i.test(
+    claim
+  );
+}
+
+function shouldDropFalsePositiveClaim(
+  claim: string,
+  evidence: ChallengerEvidenceContext
+): boolean {
+  if (!hasAbsenceLanguage(claim)) {
+    return false;
+  }
+
+  const haystack = claim.toLowerCase();
+
+  if (evidence.hasGrossMargin && haystack.includes('gross margin')) {
+    return true;
+  }
+
+  if (
+    evidence.hasProfitabilityMetrics &&
+    (haystack.includes('profitability') ||
+      haystack.includes('operating margin') ||
+      haystack.includes('net margin') ||
+      haystack.includes('free cash flow'))
+  ) {
+    return true;
+  }
+
+  if (
+    evidence.hasRevenueAnchor &&
+    (haystack.includes('revenue') || haystack.includes('scale'))
+  ) {
+    return true;
+  }
+
+  if (evidence.hasValuationAnchor && haystack.includes('valuation')) {
+    return true;
+  }
+
+  if (evidence.hasInvestorContext && haystack.includes('investor')) {
+    return true;
+  }
+
+  if (evidence.hasCompetitorContext && haystack.includes('competitor')) {
+    return true;
+  }
+
+  if (evidence.hasPrimaryFilings && haystack.includes('filing')) {
+    return true;
+  }
+
+  return false;
+}
+
+function dedupeChallengerItems(
+  items: readonly ChallengerItem[]
+): readonly ChallengerItem[] {
+  const seen = new Set<string>();
+
+  return items.filter((item) => {
+    const key = item.claim
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function createChallengerReport(
+  payload: ChallengerPayload,
+  input: ChallengerAgentInput
+): ChallengerReport {
+  const evidence = buildEvidenceContext(input);
+
   return {
-    unstatedAssumptions: normalizeItems(payload.unstatedAssumptions, 3),
-    evidenceGaps: normalizeItems(payload.evidenceGaps, 3),
-    counterScenarios: normalizeItems(payload.counterScenarios, 2),
+    unstatedAssumptions: dedupeChallengerItems(
+      normalizeItems(payload.unstatedAssumptions, 2).filter(
+        (item) => !shouldDropFalsePositiveClaim(item.claim, evidence)
+      )
+    ),
+    evidenceGaps: dedupeChallengerItems(
+      normalizeItems(payload.evidenceGaps, 2).filter(
+        (item) => !shouldDropFalsePositiveClaim(item.claim, evidence)
+      )
+    ),
+    counterScenarios: dedupeChallengerItems(
+      normalizeItems(payload.counterScenarios, 2)
+    ),
   };
 }
 
@@ -499,7 +718,10 @@ function logParsedCounts(report: ChallengerReport): void {
   );
 }
 
-function parseJsonCandidate(candidate: string): ChallengerReport | null {
+function parseJsonCandidate(
+  candidate: string,
+  input: ChallengerAgentInput
+): ChallengerReport | null {
   const parsed: unknown = JSON.parse(candidate);
   const payload = findChallengerPayload(parsed);
 
@@ -507,7 +729,7 @@ function parseJsonCandidate(candidate: string): ChallengerReport | null {
     return null;
   }
 
-  const report = createChallengerReport(payload);
+  const report = createChallengerReport(payload, input);
   logParsedCounts(report);
 
   return report;
@@ -515,14 +737,15 @@ function parseJsonCandidate(candidate: string): ChallengerReport | null {
 
 export function parseChallengerResponse(
   raw: string,
-  options: ParseChallengerOptions
+  options: ParseChallengerOptions,
+  input: ChallengerAgentInput
 ): ChallengerReport | null {
   let lastError: string | null = null;
   const candidates = buildJsonCandidates(raw);
 
   for (const candidate of candidates) {
     try {
-      return parseJsonCandidate(candidate);
+      return parseJsonCandidate(candidate, input);
     } catch (error: unknown) {
       lastError = String(error);
     }
@@ -558,7 +781,7 @@ export function parseChallengerResponse(
       });
 
       try {
-        const repairedReport = parseJsonCandidate(repairedCandidate);
+        const repairedReport = parseJsonCandidate(repairedCandidate, input);
 
         console.info('[challenger-agent] recovered truncated JSON response');
 
@@ -641,7 +864,7 @@ export async function runChallengerAgent(
       maxTokens: MAX_TOKENS,
       outputTokens,
       stopReason: response.stop_reason,
-    });
+    }, input);
 
     console.info('[challenger-agent] succeeded', {
       company: input.company,

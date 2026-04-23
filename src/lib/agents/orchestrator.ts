@@ -6,21 +6,27 @@ import { validateWaterfall } from "@/lib/agents/validation-agent";
 import { computeConfidence } from "@/lib/confidence";
 import {
   assembleMetrics,
+  buildNewsSentimentSummary,
   buildPeerComparison,
   buildStreetView,
+  summarizeMeaningfulInsiderFlow,
   buildValuationView,
   extractConsensus,
   extractEarningsHighlights,
   extractInsiderActivity,
   extractNewsHighlights,
 } from "@/lib/report-assembly";
+import {
+  buildPrivateResearchDevelopments,
+  buildRecentDevelopments,
+} from "@/lib/recent-developments";
 import { placeholderAnalysisReport } from "@/lib/types";
-import type { AnalysisReport, CoverageGap, DisagreementNote, EntityResolution, EarningsHighlight, EvidenceSignal, FinancialMetric, InsiderActivityItem, NewsHighlight, PeerComparisonItem, SectionAuditItem, StreetView, ValidationReport, ValuationView, WaterfallResult } from "@/lib/types";
+import type { AnalysisReport, ChallengerReport, CoverageGap, DisagreementNote, EntityResolution, EarningsHighlight, EvidenceSignal, FinancialMetric, InsiderActivityItem, NewsHighlight, NewsSentimentSummary, PeerComparisonItem, SectionAuditItem, StreetView, ValidationReport, ValuationView, WaterfallResult } from "@/lib/types";
 
 type StepResult<T> = { data: T; ms: number };
-type EvidenceSignalParams = { waterfallResult: WaterfallResult; metrics: readonly FinancialMetric[]; streetView: StreetView | null; valuationView: ValuationView | null; earningsHighlights: readonly EarningsHighlight[]; peerComparison: readonly PeerComparisonItem[]; insiderActivity: readonly InsiderActivityItem[] };
+type EvidenceSignalParams = { waterfallResult: WaterfallResult; metrics: readonly FinancialMetric[]; streetView: StreetView | null; valuationView: ValuationView | null; earningsHighlights: readonly EarningsHighlight[]; newsSentiment: NewsSentimentSummary | null; peerComparison: readonly PeerComparisonItem[]; insiderActivity: readonly InsiderActivityItem[] };
 type CoverageGapParams = { waterfallResult: WaterfallResult; streetView: StreetView | null; valuationView: ValuationView | null; peerComparison: readonly PeerComparisonItem[]; earningsHighlights: readonly EarningsHighlight[]; insiderActivity: readonly InsiderActivityItem[] };
-type DisagreementNoteParams = { metrics: readonly FinancialMetric[]; streetView: StreetView | null; valuationView: ValuationView | null; earningsHighlights: readonly EarningsHighlight[]; insiderActivity: readonly InsiderActivityItem[] };
+type DisagreementNoteParams = { metrics: readonly FinancialMetric[]; streetView: StreetView | null; valuationView: ValuationView | null; earningsHighlights: readonly EarningsHighlight[]; newsSentiment: NewsSentimentSummary | null; insiderActivity: readonly InsiderActivityItem[] };
 type SectionAuditParams = { entityResolution: EntityResolution; waterfallResult: WaterfallResult; metrics: readonly FinancialMetric[]; streetView: StreetView | null; valuationView: ValuationView | null; earningsHighlights: readonly EarningsHighlight[]; newsHighlights: readonly NewsHighlight[]; coverageGaps: readonly CoverageGap[]; disagreementNotes: readonly DisagreementNote[] };
 
 const EMPTY_WATERFALL_RESULT: WaterfallResult = { query: "", finnhub: null, fmp: null, secEdgar: null, companiesHouse: null, gleif: null, exaDeep: null, claudeFallback: null, activeSources: [] };
@@ -63,8 +69,14 @@ function formatSignedNumber(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 }
 
-function sumShareChange(items: readonly InsiderActivityItem[]): number {
-  return items.reduce((total, item) => total + (item.shareChange ?? 0), 0);
+function stripSourceTags(text: string): string {
+  return text.replace(/\s*\[[^\]]+\]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function firstSentence(text: string): string {
+  const normalized = stripSourceTags(text);
+  const match = normalized.match(/.*?[.!?](?:\s|$)/);
+  return match?.[0]?.trim() ?? normalized;
 }
 
 function signal(title: string, detail: string, tone: EvidenceSignal["tone"], sources: EvidenceSignal["sources"]): EvidenceSignal {
@@ -79,6 +91,19 @@ function note(title: string, detail: string, sources: DisagreementNote["sources"
   return { title, detail, sources };
 }
 
+function isPrivateResearchOnly(waterfallResult: WaterfallResult): boolean {
+  return (
+    (
+      waterfallResult.companiesHouse !== null ||
+      waterfallResult.exaDeep !== null ||
+      waterfallResult.claudeFallback !== null
+    ) &&
+    waterfallResult.finnhub === null &&
+    waterfallResult.fmp === null &&
+    waterfallResult.secEdgar === null
+  );
+}
+
 function audit(
   section: SectionAuditItem["section"],
   status: SectionAuditItem["status"],
@@ -88,16 +113,57 @@ function audit(
   return { section, status, note: noteText, sources };
 }
 
+function appendChallengerCoverageGaps(
+  gaps: readonly CoverageGap[],
+  challengerReport: ChallengerReport,
+): readonly CoverageGap[] {
+  if (challengerReport.evidenceGaps.length === 0) {
+    return gaps;
+  }
+
+  return [
+    ...gaps,
+    ...challengerReport.evidenceGaps.map((item) => ({
+      title:
+        item.citedSource !== "none"
+          ? `Challenger: ${item.citedSource}`
+          : "Challenger: data gap",
+      detail: item.claim,
+      severity: item.severity,
+    })),
+  ];
+}
+
+function appendChallengerDisagreementNotes(
+  notes: readonly DisagreementNote[],
+  challengerReport: ChallengerReport,
+): readonly DisagreementNote[] {
+  if (challengerReport.counterScenarios.length === 0) {
+    return notes;
+  }
+
+  return [
+    ...notes,
+    ...challengerReport.counterScenarios.map((item) => ({
+      title: "Counter-scenario",
+      detail: item.claim,
+      sources: [] as const,
+    })),
+  ];
+}
+
 function buildEvidenceSignals({
   waterfallResult,
   metrics,
   streetView,
   valuationView,
   earningsHighlights,
+  newsSentiment,
   peerComparison,
   insiderActivity,
 }: EvidenceSignalParams): readonly EvidenceSignal[] {
   const signals: EvidenceSignal[] = [];
+  const privateResearchOnly = isPrivateResearchOnly(waterfallResult);
   const companiesHouseProfile = waterfallResult.companiesHouse?.data.profile ?? null;
   const latestAccountsFiling = waterfallResult.companiesHouse?.data.accountsFilings[0] ?? null;
   const lastAccountsMadeUpTo =
@@ -116,13 +182,88 @@ function buildEvidenceSignals({
     valuationView?.metrics.find((item) => item.label === "P/E")?.forward ?? null;
   const latestEarnings = earningsHighlights[0];
   const latestTarget = streetView?.priceTarget;
-  const totalInsiderShareChange = sumShareChange(insiderActivity);
+  const meaningfulInsiderFlow = summarizeMeaningfulInsiderFlow(insiderActivity);
+  const exaDeep = waterfallResult.exaDeep?.data ?? null;
+  const fallbackNarrative =
+    waterfallResult.claudeFallback?.data.narrative.trim() ?? "";
+
+  if (exaDeep !== null) {
+    if (exaDeep.estimatedRevenue !== null) {
+      signals.push(signal(
+        "Private revenue evidence is available",
+        `Exa Deep Research surfaced estimated revenue of ${exaDeep.estimatedRevenue}.`,
+        "positive",
+        ["exa-deep"],
+      ));
+    }
+
+    if (exaDeep.fundingTotal !== null || exaDeep.lastValuation !== null) {
+      const capitalBits = [
+        exaDeep.fundingTotal !== null
+          ? `funding totals ${exaDeep.fundingTotal}`
+          : null,
+        exaDeep.lastValuation !== null
+          ? `last known valuation is ${exaDeep.lastValuation}`
+          : null,
+      ].filter((value): value is string => value !== null);
+
+      signals.push(signal(
+        "Private capital context is available",
+        `Exa Deep Research indicates ${capitalBits.join(" and ")}.`,
+        "neutral",
+        ["exa-deep"],
+      ));
+    }
+
+    if (exaDeep.keyInvestors.length > 0) {
+      signals.push(signal(
+        "Investor base is identifiable",
+        `Named investors include ${exaDeep.keyInvestors.slice(0, 3).join(", ")}.`,
+        "neutral",
+        ["exa-deep"],
+      ));
+    }
+
+    if (exaDeep.recentNews.trim().length > 0) {
+      signals.push(signal(
+        "Recent private-company developments are available",
+        firstSentence(stripSourceTags(exaDeep.recentNews)),
+        "neutral",
+        ["exa-deep"],
+      ));
+    }
+  }
+
+  if (
+    privateResearchOnly &&
+    signals.length === 0 &&
+    fallbackNarrative.length > 0
+  ) {
+    signals.push(signal(
+      "Web-research narrative is available",
+      firstSentence(stripSourceTags(fallbackNarrative)),
+      "neutral",
+      ["claude-fallback"],
+    ));
+  }
 
   if (revenueGrowth !== null) {
     signals.push(signal(
       revenueGrowth >= 0 ? "Revenue momentum is positive" : "Revenue momentum is under pressure",
       `Latest reported revenue growth is ${formatSignedNumber(revenueGrowth)}% on the current evidence set.`,
       revenueGrowth >= 0 ? "positive" : "negative",
+      ["finnhub"],
+    ));
+  }
+  if (newsSentiment !== null && newsSentiment.articleCount >= 2) {
+    signals.push(signal(
+      newsSentiment.label === "positive"
+        ? "Recent news tone is constructive"
+        : newsSentiment.label === "negative"
+          ? "Recent news tone is deteriorating"
+          : "Recent news tone is mixed",
+      `${newsSentiment.rationale} Aggregate finance-news score is ${newsSentiment.score.toFixed(2)}.`,
+      newsSentiment.label,
       ["finnhub"],
     ));
   }
@@ -193,11 +334,13 @@ function buildEvidenceSignals({
       ["fmp"],
     ));
   }
-  if (insiderActivity.length > 0) {
+  if (meaningfulInsiderFlow !== null) {
     signals.push(signal(
-      totalInsiderShareChange >= 0 ? "Recent insider flow is supportive" : "Recent insider flow skews to selling",
-      `Recent insider activity totals ${Math.abs(totalInsiderShareChange).toLocaleString("en-US")} shares ${totalInsiderShareChange >= 0 ? "added" : "sold"} across the tracked window.`,
-      totalInsiderShareChange >= 0 ? "positive" : "negative",
+      meaningfulInsiderFlow.direction === "buy"
+        ? "Meaningful insider buying is present"
+        : "Meaningful insider selling is present",
+      `Directional insider activity totals ${Math.abs(meaningfulInsiderFlow.totalShareChange).toLocaleString("en-US")} shares ${meaningfulInsiderFlow.direction === "buy" ? "bought" : "sold"} across ${meaningfulInsiderFlow.transactionCount} priced open-market filings, representing about ${Math.abs(meaningfulInsiderFlow.totalNotional).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}.`,
+      meaningfulInsiderFlow.direction === "buy" ? "positive" : "negative",
       ["finnhub"],
     ));
   }
@@ -213,6 +356,7 @@ function buildCoverageGaps({
   insiderActivity,
 }: CoverageGapParams): readonly CoverageGap[] {
   const gaps: CoverageGap[] = [];
+  const privateResearchOnly = isPrivateResearchOnly(waterfallResult);
   const companiesHouseProfile = waterfallResult.companiesHouse?.data.profile ?? null;
   const accountsFilings = waterfallResult.companiesHouse?.data.accountsFilings ?? [];
   const lastAccountsMadeUpTo =
@@ -220,6 +364,43 @@ function buildCoverageGaps({
   const lastAccountsType = companiesHouseProfile?.accounts?.last_accounts?.type ?? null;
   const hasUkAccountsMetadata = lastAccountsMadeUpTo !== null || lastAccountsType !== null;
   const hasUkAccountsFiling = accountsFilings.length > 0;
+  const exaDeep = waterfallResult.exaDeep?.data ?? null;
+  const hasPrivateCapitalContext =
+    exaDeep?.fundingTotal !== null || exaDeep?.lastValuation !== null;
+
+  if (privateResearchOnly) {
+    gaps.push(gap(
+      "Primary private-company disclosure is limited",
+      "The current read relies mainly on synthesized public-web research rather than management materials, primary company disclosures, or audited private-company reporting.",
+      "high",
+    ));
+
+    if (exaDeep === null || exaDeep.estimatedRevenue === null) {
+      gaps.push(gap(
+        "Revenue scale is not yet verified",
+        "No recent public revenue figure or estimate was attached, so mandate-fit and commercial scale cannot be underwritten cleanly.",
+        "high",
+      ));
+    }
+
+    if (!hasPrivateCapitalContext) {
+      gaps.push(gap(
+        "Valuation and financing context is thin",
+        "Recent funding-round or valuation evidence is missing, which limits private-market downside framing.",
+        "medium",
+      ));
+    }
+
+    if (exaDeep === null || exaDeep.keyInvestors.length === 0) {
+      gaps.push(gap(
+        "Investor base is not yet corroborated",
+        "The current evidence set does not clearly identify the investor syndicate, which reduces confidence in sponsorship quality and financing context.",
+        "medium",
+      ));
+    }
+
+    return gaps.slice(0, 6);
+  }
 
   if (waterfallResult.secEdgar?.data.xbrlFacts === null || waterfallResult.secEdgar === null) {
     gaps.push(gap(
@@ -289,6 +470,7 @@ function buildDisagreementNotes({
   streetView,
   valuationView,
   earningsHighlights,
+  newsSentiment,
   insiderActivity,
 }: DisagreementNoteParams): readonly DisagreementNote[] {
   const notes: DisagreementNote[] = [];
@@ -300,7 +482,7 @@ function buildDisagreementNotes({
   const historicalHigh =
     valuationView?.metrics.find((item) => item.label === "P/E")?.historicalHigh ?? null;
   const upsidePercent = streetView?.priceTarget?.upsidePercent ?? null;
-  const totalInsiderShareChange = sumShareChange(insiderActivity);
+  const meaningfulInsiderFlow = summarizeMeaningfulInsiderFlow(insiderActivity);
 
   if (
     latestEarnings?.surprisePercent !== null &&
@@ -334,10 +516,17 @@ function buildDisagreementNotes({
       ["fmp", "finnhub"],
     ));
   }
-  if (totalInsiderShareChange < 0 && consensusRating === "buy") {
+  if (meaningfulInsiderFlow?.direction === "sell" && consensusRating === "buy") {
     notes.push(note(
       "Insider flow is softer than Street sentiment",
-      "Recent tracked insider activity skews to selling even as consensus remains constructive.",
+      `Meaningful priced insider selling totals about ${Math.abs(meaningfulInsiderFlow.totalNotional).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} even as consensus remains constructive.`,
+      ["finnhub"],
+    ));
+  }
+  if (newsSentiment !== null && newsSentiment.label === "negative" && consensusRating === "buy") {
+    notes.push(note(
+      "News tone is weaker than Street positioning",
+      `${newsSentiment.rationale} That sits awkwardly beside a Buy consensus.`,
       ["finnhub"],
     ));
   }
@@ -376,12 +565,27 @@ function buildSectionAudit({
     waterfallResult.companiesHouse?.data.profile?.accounts?.last_accounts?.type !==
       undefined ||
     (waterfallResult.companiesHouse?.data.accountsFilings.length ?? 0) > 0;
+  const hasSecIdentityTriad = ["Ticker", "CIK", "Exchange"].every((label) =>
+    entityResolution.identifiers.some((item) => item.label === label && item.source === "sec-edgar"),
+  );
 
   const sectionAudit: SectionAuditItem[] = [
     audit(
       "Entity Resolution",
-      entityResolution.primarySource === null ? "limited" : entityResolution.matchedSources.length >= 2 ? "supported" : "partial",
-      entityResolution.matchedSources.length >= 2
+      entityResolution.primarySource === null
+        ? "limited"
+        : hasSecIdentityTriad
+          ? "supported"
+        : entityResolution.primarySource === "exa-deep"
+          ? "partial"
+          : entityResolution.matchedSources.length >= 2
+            ? "supported"
+            : "partial",
+      hasSecIdentityTriad
+        ? "SEC filing metadata provides a canonical company identity with ticker, CIK, and exchange alignment."
+        : entityResolution.primarySource === "exa-deep"
+        ? "Entity resolution is anchored by private-company research synthesis, but registry or filing corroboration is still limited."
+        : entityResolution.matchedSources.length >= 2
         ? `Canonical entity is backed by ${entityResolution.matchedSources.length} corroborating sources.`
         : entityResolution.note,
       entityResolution.matchedSources,
@@ -396,15 +600,23 @@ function buildSectionAudit({
     ),
     audit(
       "Financial Analysis",
-      hasPrimaryFilings || financialMetricCount >= 8 ? "supported" : financialMetricCount >= 4 ? "partial" : "limited",
+      hasPrimaryFilings || financialMetricCount >= 8
+        ? "supported"
+        : financialMetricCount >= 4 || (isPrivateResearchOnly(waterfallResult) && financialMetricCount >= 3)
+          ? "partial"
+          : "limited",
       hasPrimaryFilings
         ? "Primary filing facts and structured metrics support the financial-analysis section."
-        : `Financial analysis currently rests on ${financialMetricCount} structured metrics without full filing depth.`,
+        : isPrivateResearchOnly(waterfallResult)
+          ? `Financial analysis currently rests on ${financialMetricCount} structured private-company profile and funding metrics without filing-backed statements.`
+          : `Financial analysis currently rests on ${financialMetricCount} structured metrics without full filing depth.`,
       [
         ...(waterfallResult.secEdgar !== null ? (["sec-edgar"] as const) : []),
         ...(waterfallResult.finnhub !== null ? (["finnhub"] as const) : []),
         ...(waterfallResult.fmp !== null ? (["fmp"] as const) : []),
         ...(hasCompaniesHouseAccountsMetadata ? (["companies-house"] as const) : []),
+        ...(waterfallResult.exaDeep !== null ? (["exa-deep"] as const) : []),
+        ...(waterfallResult.claudeFallback !== null ? (["claude-fallback"] as const) : []),
       ],
     ),
     audit(
@@ -425,6 +637,8 @@ function buildSectionAudit({
       hasStreetConsensus && (hasStreetTarget || hasForwardEstimates) ? "supported" : streetView !== null || earningsHighlights.length > 0 ? "partial" : "limited",
       hasStreetConsensus && (hasStreetTarget || hasForwardEstimates)
         ? "Consensus combines recommendations with target or forward-estimate context."
+        : isPrivateResearchOnly(waterfallResult)
+          ? "Street-consensus coverage is not expected for a private-company read; the section remains limited by design."
         : streetView !== null || earningsHighlights.length > 0
           ? "Street view is present, but some target/estimate detail is still thin."
           : "Street-consensus coverage is limited.",
@@ -488,7 +702,11 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
   );
   const validationReport = validationStep.data;
 
-  const confidence = computeConfidence(waterfallResult, entityResolution);
+  const confidence = computeConfidence(
+    waterfallResult,
+    entityResolution,
+    validationReport,
+  );
   const metrics = assembleMetrics(waterfallResult);
   const analystConsensus = extractConsensus(waterfallResult);
   const streetView = buildStreetView(waterfallResult);
@@ -496,12 +714,23 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
   const peerComparison = buildPeerComparison(waterfallResult);
   const earningsHighlights = extractEarningsHighlights(waterfallResult);
   const insiderActivity = extractInsiderActivity(waterfallResult);
+  const newsHighlights = extractNewsHighlights(waterfallResult);
+  const newsSentiment = buildNewsSentimentSummary(newsHighlights);
+  const recentDevelopments =
+    newsHighlights.length > 0
+      ? buildRecentDevelopments(entityResolution.displayName, newsHighlights)
+      : buildPrivateResearchDevelopments(
+          entityResolution.displayName,
+          waterfallResult.exaDeep?.data.recentNews ?? null,
+          new Date().toISOString(),
+        );
   const evidenceSignals = buildEvidenceSignals({
     waterfallResult,
     metrics,
     streetView,
     valuationView,
     earningsHighlights,
+    newsSentiment,
     peerComparison,
     insiderActivity,
   });
@@ -518,9 +747,9 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
     streetView,
     valuationView,
     earningsHighlights,
+    newsSentiment,
     insiderActivity,
   });
-  const newsHighlights = extractNewsHighlights(waterfallResult);
   const sectionAudit = buildSectionAudit({
     entityResolution,
     waterfallResult,
@@ -561,6 +790,11 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
         draftMemo: draftStep.data.investmentMemo,
         waterfallResult,
         validationReport,
+        metrics,
+        evidenceSignals,
+        coverageGaps,
+        disagreementNotes,
+        sectionAudit,
       }),
     emptyChallengerReport(),
   );
@@ -579,6 +813,25 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
     finalStep.ms;
   console.info("[orchestrator] runAnalysis complete", { query, totalMs });
 
+  const finalCoverageGaps = appendChallengerCoverageGaps(
+    coverageGaps,
+    challengeStep.data,
+  );
+  const finalDisagreementNotes = appendChallengerDisagreementNotes(
+    disagreementNotes,
+    challengeStep.data,
+  );
+  const finalSectionAudit = buildSectionAudit({
+    entityResolution,
+    waterfallResult,
+    metrics,
+    streetView,
+    valuationView,
+    earningsHighlights,
+    newsHighlights,
+    coverageGaps: finalCoverageGaps,
+    disagreementNotes: finalDisagreementNotes,
+  });
   const investmentMemo = finalStep.data.investmentMemo;
   const summary =
     investmentMemo.verdict.trim().length === 0
@@ -602,11 +855,13 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
     insiderActivity,
     deltas: [],
     evidenceSignals,
-    coverageGaps,
-    disagreementNotes,
-    sectionAudit,
+    coverageGaps: finalCoverageGaps,
+    disagreementNotes: finalDisagreementNotes,
+    sectionAudit: finalSectionAudit,
     validationReport,
     newsHighlights,
+    newsSentiment,
+    recentDevelopments,
     sources: waterfallResult.activeSources,
     isAmbiguous: waterfallResult.finnhub?.data.isAmbiguous ?? false,
     updatedAt: new Date().toISOString(),

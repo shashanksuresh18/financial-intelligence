@@ -54,6 +54,7 @@ function formatMetrics(input: NarrativeInput): string {
   const fallbackNarrative =
     input.waterfallResult.claudeFallback?.data.narrative.trim() ?? "";
   const fallbackMetrics = input.waterfallResult.claudeFallback?.data.extractedMetrics ?? [];
+  const exaDeep = input.waterfallResult.exaDeep?.data ?? null;
   const companiesHouseNextDue =
     companiesHouseProfile?.accounts?.next_accounts?.due_on ??
     companiesHouseProfile?.accounts?.next_due ??
@@ -91,20 +92,24 @@ function formatMetrics(input: NarrativeInput): string {
     .filter((item): item is number => item !== null);
   const forwardEstimates = fmp?.analystEstimates.slice(0, 2) ?? [];
   const priceTargetConsensus = fmp?.priceTargetConsensus;
-  const peerLines = (fmp?.peers ?? []).slice(0, 3).map((item) => {
-    const valuationBits = [
-      item.peRatio === null ? null : `P/E ${formatNumber(item.peRatio)}x`,
-      item.evToEbitda === null
-        ? null
-        : `EV / EBITDA ${formatNumber(item.evToEbitda)}x`,
-      item.revenueGrowth === null
-        ? null
-        : `revenue growth ${formatPercent(item.revenueGrowth)}`,
-    ].filter((value): value is string => value !== null);
+  const peerLines = (fmp?.peers ?? [])
+    .map((item) => {
+      const valuationBits = [
+        item.peRatio === null ? null : `P/E ${formatNumber(item.peRatio)}x`,
+        item.evToEbitda === null
+          ? null
+          : `EV / EBITDA ${formatNumber(item.evToEbitda)}x`,
+        item.revenueGrowth === null
+          ? null
+          : `revenue growth ${formatPercent(item.revenueGrowth)}`,
+      ].filter((value): value is string => value !== null);
 
-    return `- Peer (${item.symbol}): ${item.companyName}${valuationBits.length === 0 ? "" : `; ${valuationBits.join(", ")}`
-      }`;
-  });
+      return valuationBits.length === 0
+        ? null
+        : `- Peer (${item.symbol}): ${item.companyName}; ${valuationBits.join(", ")}`;
+    })
+    .filter((item): item is string => item !== null)
+    .slice(0, 3);
 
   const extractLatestFact = (concepts: readonly string[]): number | null => {
     if (xbrlFacts === null || xbrlFacts === undefined) {
@@ -286,6 +291,30 @@ function formatMetrics(input: NarrativeInput): string {
       ]
       : []),
     ...peerLines,
+    ...(exaDeep !== null && exaDeep.overview.trim().length > 0
+      ? [`- Exa Deep overview: ${exaDeep.overview.replace(/\s+/g, " ")}`]
+      : []),
+    ...(exaDeep !== null && exaDeep.estimatedRevenue !== null
+      ? [`- Exa Deep estimated revenue: ${exaDeep.estimatedRevenue}`]
+      : []),
+    ...(exaDeep !== null && exaDeep.fundingTotal !== null
+      ? [`- Exa Deep total funding: ${exaDeep.fundingTotal}`]
+      : []),
+    ...(exaDeep !== null && exaDeep.lastValuation !== null
+      ? [`- Exa Deep last valuation: ${exaDeep.lastValuation}`]
+      : []),
+    ...(exaDeep !== null && exaDeep.headquarters !== null
+      ? [`- Exa Deep headquarters: ${exaDeep.headquarters}`]
+      : []),
+    ...(exaDeep !== null && exaDeep.keyInvestors.length > 0
+      ? [`- Exa Deep key investors: ${exaDeep.keyInvestors.slice(0, 5).join(", ")}`]
+      : []),
+    ...(exaDeep !== null && exaDeep.competitors.length > 0
+      ? [`- Exa Deep competitors: ${exaDeep.competitors.slice(0, 5).join(", ")}`]
+      : []),
+    ...(exaDeep !== null && exaDeep.recentNews.trim().length > 0
+      ? [`- Exa Deep recent developments: ${exaDeep.recentNews.replace(/\s+/g, " ")}`]
+      : []),
     ...(recommendationLine === null ? [] : [recommendationLine]),
     ...earningsLines,
     ...(insiderLine === null ? [] : [insiderLine]),
@@ -369,7 +398,11 @@ function formatInvestmentMemo(input: NarrativeInput): string {
 
   return [
     `Recommendation: ${input.investmentMemo.recommendation}`,
-    `Conviction: ${input.investmentMemo.conviction}`,
+    `Display recommendation: ${input.investmentMemo.displayRecommendationLabel}`,
+    `Investment conviction: ${input.investmentMemo.conviction}`,
+    `Conviction summary: ${input.investmentMemo.convictionSummary}`,
+    `Role: ${input.investmentMemo.role}`,
+    `Mandate fit: ${input.investmentMemo.mandateFit}`,
     `Coverage profile: ${input.investmentMemo.coverageProfile}`,
     `Verdict: ${input.investmentMemo.verdict}`,
     `Thesis: ${input.investmentMemo.thesis}`,
@@ -389,6 +422,13 @@ function formatInvestmentMemo(input: NarrativeInput): string {
 }
 
 function buildPrompt(input: NarrativeInput): string {
+  const privateCompanyRead =
+    (input.waterfallResult.exaDeep !== null ||
+      input.waterfallResult.claudeFallback !== null) &&
+    input.waterfallResult.finnhub === null &&
+    input.waterfallResult.fmp === null &&
+    input.waterfallResult.secEdgar === null;
+
   return `You are writing an institutional-quality research note for investment professionals on ${input.company}.
 
 Entity resolution:
@@ -406,19 +446,25 @@ ${formatResearchOps(input)}
 Section audit:
 ${formatSectionAudit(input)}
 
-Confidence score: ${input.confidence.score}/100 (${input.confidence.level})
-Confidence rationale: ${input.confidence.rationale}
+Data confidence: ${input.confidence.score}/100 (${input.confidence.level})
+Data-confidence rationale: ${input.confidence.rationale}
+Company mode: ${privateCompanyRead ? "private-company diligence screen" : "public-company note"}
 
 Rules:
 - Use ONLY the evidence above. Do not invent or estimate any numbers.
 - If a data point is missing, say it is unavailable instead of guessing.
 - Every numeric claim should include a source tag where possible using only these labels: [SEC EDGAR], [Finnhub], [FMP], [Companies House], [GLEIF], [Claude Fallback].
 - Use the canonical company name and identifiers from the entity-resolution block when naming the company.
-- Call out Street view explicitly when recommendation, target, earnings, or recent-news evidence is present.
+- For public-company notes, lean on filings, earnings, valuation multiples, Street view, peer framing, and catalysts.
+- For private-company notes, lean on business model, traction evidence, funding/valuation context, investors, competitors, and what primary diligence is still required.
+- Call out Street view explicitly when recommendation, target, earnings, or recent-news evidence is present for a public-company read.
 - In the Valuation section, compare current multiples with historical ranges and forward estimates when FMP evidence is present.
 - Use the research operations layer: promote the strongest evidence signals, explicitly mention material coverage gaps, call out disagreement notes when present, and respect section-audit limitations.
 - If data comes primarily from fallback web search, say so clearly.
 - If the company is covered mainly by Companies House, use registry/accounts metadata to describe the legal entity and filing timetable, but do not pretend full financial-statement coverage exists.
+- If the company is covered mainly by Exa Deep Research or Claude fallback, write it as a private-company diligence screen rather than a public-equity note. Do not treat missing SEC filings, price targets, or earnings panels as standalone business negatives.
+- For private-company reads, the STREET CONSENSUS section should say public-market Street coverage is not applicable or unavailable by design, not that the company failed a public-market test.
+- For private-company reads, the VALUATION section should emphasize funding, tender or round context, and missing primary diligence rather than public-market precision.
 - If management-style positioning and Street evidence appear to diverge, call that out explicitly.
 - The Executive Summary should read like an investment memo opening and stay aligned with the memo anchor unless the evidence blocks force a more cautious interpretation.
 - Write each section heading as plain uppercase text only. Do not add markdown symbols like ** or ## around headings.

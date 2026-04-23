@@ -1,5 +1,9 @@
 import { generateNarrative } from "@/lib/claude-narrative";
 import { buildInvestmentMemo } from "@/lib/investment-memo";
+import {
+  applyNebiusMemoOverrides,
+  synthesizeNebiusMemo,
+} from "@/lib/nebius-memo";
 import type {
   ChallengerReport,
   ConfidenceLevel,
@@ -156,10 +160,26 @@ export async function runMemoAgent(
     conviction: finalConviction,
     stressTest,
   };
+  const nebiusOverrides = await synthesizeNebiusMemo({
+    company: input.company,
+    memo: finalMemo,
+    confidence: input.confidence,
+    entityResolution: input.entityResolution,
+    metrics: input.metrics,
+    streetView: input.streetView,
+    valuationView: input.valuationView,
+    earningsHighlights: input.earningsHighlights,
+    newsHighlights: input.newsHighlights,
+    evidenceSignals: input.evidenceSignals,
+    coverageGaps: augmentedCoverageGaps,
+    disagreementNotes: augmentedDisagreementNotes,
+    sources: input.waterfallResult.activeSources,
+  });
+  const enrichedMemo = applyNebiusMemoOverrides(finalMemo, nebiusOverrides);
   const narrativeResult = await generateNarrative({
     company: input.company,
     entityResolution: input.entityResolution,
-    investmentMemo: finalMemo,
+    investmentMemo: enrichedMemo,
     waterfallResult: input.waterfallResult,
     confidence: input.confidence,
     evidenceSignals: input.evidenceSignals,
@@ -172,6 +192,8 @@ export async function runMemoAgent(
     company: input.company,
     configuredModel:
       process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-20250514",
+    nebiusMemoApplied: nebiusOverrides !== null,
+    nebiusModel: process.env.NEBIUS_LLM_MODEL?.trim() || null,
     challengerApplied: challengerReport !== null,
     originalConviction: baseMemo.conviction,
     finalConviction,
@@ -180,7 +202,7 @@ export async function runMemoAgent(
   });
 
   return {
-    investmentMemo: finalMemo,
+    investmentMemo: enrichedMemo,
     narrative: narrativeResult.narrative,
     sections: narrativeResult.sections,
   };

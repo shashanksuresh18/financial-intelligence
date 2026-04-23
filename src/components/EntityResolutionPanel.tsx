@@ -1,5 +1,7 @@
 import type { DataSource, EntityResolution } from "@/lib/types";
 
+import SectionInfoTooltip from "./SectionInfoTooltip";
+
 type EntityResolutionPanelProps = {
   readonly entityResolution: EntityResolution;
 };
@@ -20,9 +22,15 @@ export function EntityResolutionPanel({
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
       <div className="mb-4">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
-          Entity Resolution
-        </h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
+            Entity Resolution
+          </h3>
+          <SectionInfoTooltip
+            align="end"
+            content="How confidently the system matched this analysis to the correct legal or market entity."
+          />
+        </div>
         <p className="mt-1 text-sm text-zinc-500">
           Canonical name, identifiers, and the source used to resolve the company.
         </p>

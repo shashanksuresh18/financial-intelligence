@@ -15,10 +15,101 @@ import type {
   WaterfallResult,
 } from "@/lib/types";
 import {
+  CAPEX_CONCEPTS,
   extractLatestFact,
+  GROSS_PROFIT_CONCEPTS,
+  OPERATING_CASH_FLOW_CONCEPTS,
   NET_INCOME_CONCEPTS,
   REVENUE_CONCEPTS,
 } from "@/lib/datasources/sec-edgar";
+import {
+  enrichNewsHighlight,
+  summarizeNewsSentiment,
+} from "@/lib/news-sentiment";
+
+const DIRECTIONAL_INSIDER_CODES = new Set(["P", "S"]);
+const MIN_MEANINGFUL_INSIDER_NOTIONAL = 500_000;
+const MIN_MEANINGFUL_INSIDER_SHARE_CHANGE = 10_000;
+
+type MeaningfulInsiderFlowSummary = {
+  readonly direction: "buy" | "sell";
+  readonly totalShareChange: number;
+  readonly totalNotional: number;
+  readonly transactionCount: number;
+};
+
+function normalizeInsiderTransactionCode(code: string): string {
+  return code.trim().toUpperCase().slice(0, 1);
+}
+
+function isDirectionalInsiderTransaction(item: InsiderActivityItem): boolean {
+  const code = normalizeInsiderTransactionCode(item.transactionCode);
+
+  return (
+    DIRECTIONAL_INSIDER_CODES.has(code) &&
+    item.shareChange !== null &&
+    item.transactionPrice !== null &&
+    item.transactionPrice > 0
+  );
+}
+
+export function summarizeMeaningfulInsiderFlow(
+  items: readonly InsiderActivityItem[],
+): MeaningfulInsiderFlowSummary | null {
+  const directionalItems = items.filter(isDirectionalInsiderTransaction);
+
+  if (directionalItems.length === 0) {
+    return null;
+  }
+
+  const totalShareChange = directionalItems.reduce(
+    (total, item) => total + (item.shareChange ?? 0),
+    0,
+  );
+  const totalNotional = directionalItems.reduce(
+    (total, item) =>
+      total + ((item.shareChange ?? 0) * (item.transactionPrice ?? 0)),
+    0,
+  );
+
+  if (
+    Math.abs(totalNotional) < MIN_MEANINGFUL_INSIDER_NOTIONAL &&
+    Math.abs(totalShareChange) < MIN_MEANINGFUL_INSIDER_SHARE_CHANGE
+  ) {
+    return null;
+  }
+
+  return {
+    direction: totalShareChange >= 0 ? "buy" : "sell",
+    totalShareChange,
+    totalNotional,
+    transactionCount: directionalItems.length,
+  };
+}
+
+function scorePeerComparisonCandidate(
+  peer: PeerComparisonItem,
+): number {
+  let score = 0;
+
+  if (peer.marketCap !== null) {
+    score += 1;
+  }
+
+  if (peer.peRatio !== null) {
+    score += 2;
+  }
+
+  if (peer.evToEbitda !== null) {
+    score += 2;
+  }
+
+  if (peer.revenueGrowth !== null) {
+    score += 2;
+  }
+
+  return score;
+}
 
 export function extractXbrlMetrics(
   result: WaterfallResult,
@@ -34,6 +125,35 @@ export function extractXbrlMetrics(
     result.secEdgar.data.xbrlFacts,
     NET_INCOME_CONCEPTS,
   );
+  const grossProfit = extractLatestFact(
+    result.secEdgar.data.xbrlFacts,
+    GROSS_PROFIT_CONCEPTS,
+  );
+  const operatingCashFlow = extractLatestFact(
+    result.secEdgar.data.xbrlFacts,
+    OPERATING_CASH_FLOW_CONCEPTS,
+  );
+  const capexRaw = extractLatestFact(
+    result.secEdgar.data.xbrlFacts,
+    CAPEX_CONCEPTS,
+  );
+  const capex = capexRaw === null ? null : Math.abs(capexRaw);
+  const grossMargin =
+    revenue !== null && revenue !== 0 && grossProfit !== null
+      ? (grossProfit / revenue) * 100
+      : null;
+  const capexToRevenue =
+    revenue !== null && revenue !== 0 && capex !== null
+      ? (capex / revenue) * 100
+      : null;
+  const freeCashFlow =
+    operatingCashFlow !== null
+      ? operatingCashFlow - (capex ?? 0)
+      : null;
+  const freeCashFlowMargin =
+    revenue !== null && revenue !== 0 && freeCashFlow !== null
+      ? (freeCashFlow / revenue) * 100
+      : null;
   return [
     ...(revenue !== null
       ? [
@@ -46,12 +166,89 @@ export function extractXbrlMetrics(
           },
         ]
       : []),
+    ...(grossProfit !== null
+      ? [
+          {
+            label: "Gross Profit",
+            value: grossProfit,
+            format: "currency" as const,
+            period: "Latest FY",
+            source: "sec-edgar" as const,
+          },
+        ]
+      : []),
+    ...(grossMargin !== null
+      ? [
+          {
+            label: "Gross Margin",
+            value: grossMargin,
+            format: "percent" as const,
+            period: "Latest FY",
+            source: "sec-edgar" as const,
+          },
+        ]
+      : []),
     ...(netIncome !== null
       ? [
           {
             label: "Net Income",
             value: netIncome,
             format: "currency" as const,
+            period: "Latest FY",
+            source: "sec-edgar" as const,
+          },
+        ]
+      : []),
+    ...(operatingCashFlow !== null
+      ? [
+          {
+            label: "Operating Cash Flow",
+            value: operatingCashFlow,
+            format: "currency" as const,
+            period: "Latest FY",
+            source: "sec-edgar" as const,
+          },
+        ]
+      : []),
+    ...(capex !== null
+      ? [
+          {
+            label: "Capital Expenditures",
+            value: capex,
+            format: "currency" as const,
+            period: "Latest FY",
+            source: "sec-edgar" as const,
+          },
+        ]
+      : []),
+    ...(capexToRevenue !== null
+      ? [
+          {
+            label: "CapEx / Revenue",
+            value: capexToRevenue,
+            format: "percent" as const,
+            period: "Latest FY",
+            source: "sec-edgar" as const,
+          },
+        ]
+      : []),
+    ...(freeCashFlow !== null
+      ? [
+          {
+            label: "Free Cash Flow",
+            value: freeCashFlow,
+            format: "currency" as const,
+            period: "Latest FY",
+            source: "sec-edgar" as const,
+          },
+        ]
+      : []),
+    ...(freeCashFlowMargin !== null
+      ? [
+          {
+            label: "Free Cash Flow Margin",
+            value: freeCashFlowMargin,
+            format: "percent" as const,
             period: "Latest FY",
             source: "sec-edgar" as const,
           },
@@ -331,6 +528,89 @@ export function extractCompaniesHouseMetrics(
   return metrics;
 }
 
+export function extractExaDeepMetrics(
+  result: WaterfallResult,
+): readonly FinancialMetric[] {
+  if (result.exaDeep === null) {
+    return [];
+  }
+
+  const data = result.exaDeep.data;
+
+  return [
+    ...(data.estimatedRevenue !== null
+      ? [
+          {
+            label: "Estimated Revenue",
+            value: data.estimatedRevenue,
+            period: "Latest public estimate",
+            source: "exa-deep" as const,
+          },
+        ]
+      : []),
+    ...(data.fundingTotal !== null
+      ? [
+          {
+            label: "Total Funding",
+            value: data.fundingTotal,
+            period: "Latest public disclosure",
+            source: "exa-deep" as const,
+          },
+        ]
+      : []),
+    ...(data.lastValuation !== null
+      ? [
+          {
+            label: "Last Valuation",
+            value: data.lastValuation,
+            period: "Latest public disclosure",
+            source: "exa-deep" as const,
+          },
+        ]
+      : []),
+    ...(data.foundedYear !== null
+      ? [
+          {
+            label: "Founded Year",
+            value: data.foundedYear,
+            period: "Company profile",
+            source: "exa-deep" as const,
+          },
+        ]
+      : []),
+    ...(data.headquarters !== null
+      ? [
+          {
+            label: "Headquarters",
+            value: data.headquarters,
+            period: "Company profile",
+            source: "exa-deep" as const,
+          },
+        ]
+      : []),
+    ...(data.keyInvestors.length > 0
+      ? [
+          {
+            label: "Key Investors",
+            value: data.keyInvestors.slice(0, 5).join(", "),
+            period: "Company profile",
+            source: "exa-deep" as const,
+          },
+        ]
+      : []),
+    ...(data.competitors.length > 0
+      ? [
+          {
+            label: "Competitors",
+            value: data.competitors.slice(0, 5).join(", "),
+            period: "Company profile",
+            source: "exa-deep" as const,
+          },
+        ]
+      : []),
+  ];
+}
+
 function getCurrentValuationMetric(
   result: WaterfallResult,
   label: ValuationMetricComparison["label"],
@@ -523,16 +803,25 @@ export function buildPeerComparison(
   if (result.fmp === null) {
     return [];
   }
-  return result.fmp.data.peers.map((peer) => ({
-    symbol: peer.symbol,
-    companyName: peer.companyName,
-    currentPrice: peer.currentPrice,
-    marketCap: peer.marketCap,
-    peRatio: peer.peRatio,
-    evToEbitda: peer.evToEbitda,
-    revenueGrowth: peer.revenueGrowth,
-    source: "fmp",
-  }));
+
+  return result.fmp.data.peers
+    .map((peer) => ({
+      symbol: peer.symbol,
+      companyName: peer.companyName,
+      currentPrice: peer.currentPrice,
+      marketCap: peer.marketCap,
+      peRatio: peer.peRatio,
+      evToEbitda: peer.evToEbitda,
+      revenueGrowth: peer.revenueGrowth,
+      source: "fmp" as const,
+    }))
+    .map((peer) => ({
+      peer,
+      score: scorePeerComparisonCandidate(peer),
+    }))
+    .filter(({ score }) => score >= 2)
+    .sort((left, right) => right.score - left.score)
+    .map(({ peer }) => peer);
 }
 
 export function assembleMetrics(result: WaterfallResult): readonly FinancialMetric[] {
@@ -540,6 +829,7 @@ export function assembleMetrics(result: WaterfallResult): readonly FinancialMetr
     ...extractXbrlMetrics(result),
     ...extractFinnhubMetrics(result),
     ...extractCompaniesHouseMetrics(result),
+    ...extractExaDeepMetrics(result),
     ...(result.claudeFallback !== null
       ? result.claudeFallback.data.extractedMetrics
       : []),
@@ -738,11 +1028,19 @@ export function extractNewsHighlights(
   if (result.finnhub === null) {
     return [];
   }
-  return result.finnhub.data.news.slice(0, 5).map((item) => ({
-    headline: item.headline,
-    source: item.source,
-    publishedAt: new Date(item.datetime * 1000).toISOString(),
-    summary: item.summary,
-    url: item.url,
-  }));
+  return result.finnhub.data.news.slice(0, 5).map((item) =>
+    enrichNewsHighlight({
+      headline: item.headline,
+      source: item.source,
+      publishedAt: new Date(item.datetime * 1000).toISOString(),
+      summary: item.summary,
+      url: item.url,
+    }),
+  );
+}
+
+export function buildNewsSentimentSummary(
+  highlights: readonly NewsHighlight[],
+) {
+  return summarizeNewsSentiment(highlights);
 }

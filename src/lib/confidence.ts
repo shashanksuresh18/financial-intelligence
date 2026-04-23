@@ -3,8 +3,10 @@ import type {
   ConfidenceLevel,
   ConfidenceScore,
   EntityResolution,
+  ValidationReport,
   WaterfallResult,
 } from "@/lib/types";
+import { summarizeMeaningfulInsiderFlow } from "@/lib/report-assembly";
 
 function getLevel(score: number): ConfidenceLevel {
   if (score >= 75) {
@@ -79,7 +81,7 @@ function buildIdentityComponent(
     return {
       key: "identity",
       label: "Entity Match",
-      score: 28,
+      score: 24,
       rationale: "SEC entity match present with filing-backed company identity.",
     };
   }
@@ -92,7 +94,7 @@ function buildIdentityComponent(
     return {
       key: "identity",
       label: "Entity Match",
-      score: 24,
+      score: 20,
       rationale: "Registry and LEI sources agree on the company identity.",
     };
   }
@@ -104,7 +106,7 @@ function buildIdentityComponent(
     return {
       key: "identity",
       label: "Entity Match",
-      score: 18,
+      score: 16,
       rationale: "Market symbol mapping is corroborated by a secondary source, but not by primary filings.",
     };
   }
@@ -116,7 +118,7 @@ function buildIdentityComponent(
     return {
       key: "identity",
       label: "Entity Match",
-      score: 18,
+      score: 16,
       rationale: "Authoritative registry data confirms the legal entity.",
     };
   }
@@ -125,8 +127,18 @@ function buildIdentityComponent(
     return {
       key: "identity",
       label: "Entity Match",
-      score: 14,
+      score: 12,
       rationale: "Market symbol mapping is available, but registry corroboration is limited.",
+    };
+  }
+
+  if (result.exaDeep !== null) {
+    return {
+      key: "identity",
+      label: "Entity Match",
+      score: 10,
+      rationale:
+        "Entity identified via Exa Deep Research; no primary registry or market match.",
     };
   }
 
@@ -136,16 +148,6 @@ function buildIdentityComponent(
       label: "Entity Match",
       score: 5,
       rationale: "Entity identification relies on web search fallback only.",
-    };
-  }
-
-  if (result.exaDeep !== null) {
-    return {
-      key: "identity",
-      label: "Entity Match",
-      score: 14,
-      rationale:
-        "Entity identified via Exa Deep Research; no primary registry or market match.",
     };
   }
 
@@ -170,20 +172,20 @@ function buildFinancialsComponent(result: WaterfallResult): ConfidenceComponent 
   const fmpSignalCount = countFmpSignals(result);
 
   if (fmpSignalCount > 0) {
-    const score = Math.min(32, 18 + fmpSignalCount * 3);
+    const score = Math.min(20, 10 + fmpSignalCount * 2);
 
     return {
       key: "financials",
       label: "Financial Depth",
       score,
-      rationale: `FMP contributes ${fmpSignalCount} valuation and forward-data segments on top of the current market snapshot.`,
+      rationale: `FMP contributes ${fmpSignalCount} valuation and forward-data segments, but the underwriting frame is still not filing-backed.`,
     };
   }
 
   const finnhubMetricCount = countFinnhubMetrics(result);
 
   if (finnhubMetricCount > 0) {
-    const score = Math.min(28, 12 + finnhubMetricCount);
+    const score = Math.min(18, 8 + Math.min(finnhubMetricCount, 8));
 
     return {
       key: "financials",
@@ -197,7 +199,7 @@ function buildFinancialsComponent(result: WaterfallResult): ConfidenceComponent 
     return {
       key: "financials",
       label: "Financial Depth",
-      score: 14,
+      score: 10,
       rationale: "Pricing data is available, but deeper financial coverage is still light.",
     };
   }
@@ -233,14 +235,18 @@ function buildFinancialsComponent(result: WaterfallResult): ConfidenceComponent 
     const hasCapital =
       result.exaDeep.data.fundingTotal !== null ||
       result.exaDeep.data.lastValuation !== null;
+    const hasProfileDepth =
+      result.exaDeep.data.keyInvestors.length > 0 ||
+      result.exaDeep.data.competitors.length > 0 ||
+      result.exaDeep.data.headquarters !== null;
     const score = hasRevenue && hasCapital ? 12 : hasRevenue || hasCapital ? 8 : 5;
 
     return {
       key: "financials",
       label: "Financial Depth",
-      score,
+      score: hasProfileDepth ? Math.min(14, score + 2) : score,
       rationale:
-        "Financial figures sourced from Exa Deep Research synthesis; not primary filings.",
+        "Private-company operating and capital data come from Exa Deep Research synthesis rather than primary filings.",
     };
   }
 
@@ -267,10 +273,22 @@ function buildStreetComponent(result: WaterfallResult): ConfidenceComponent {
     result.finnhub?.data.priceTarget !== null ||
     result.fmp?.data.priceTargetConsensus !== null;
   const hasEarnings = (result.finnhub?.data.earnings.length ?? 0) > 0;
-  const hasInsider = (result.finnhub?.data.insiderTransactions.length ?? 0) > 0;
+  const meaningfulInsiderFlow = summarizeMeaningfulInsiderFlow(
+    result.finnhub?.data.insiderTransactions.map((item) => ({
+      name: item.name,
+      shareChange: item.change,
+      share: item.share,
+      transactionCode: item.transactionCode,
+      transactionDate: item.transactionDate,
+      filingDate: item.filingDate,
+      transactionPrice: item.transactionPrice,
+      source: "finnhub" as const,
+    })) ?? [],
+  );
+  const hasInsider = meaningfulInsiderFlow !== null;
   const hasForwardEstimates = (result.fmp?.data.analystEstimates.length ?? 0) > 0;
   const earningsCount = result.finnhub?.data.earnings.length ?? 0;
-  const insiderCount = result.finnhub?.data.insiderTransactions.length ?? 0;
+  const insiderCount = meaningfulInsiderFlow?.transactionCount ?? 0;
 
   if (
     !hasRecommendations &&
@@ -325,7 +343,7 @@ function buildFreshnessComponent(result: WaterfallResult): ConfidenceComponent {
     return {
       key: "freshness",
       label: "Freshness",
-      score: 15,
+      score: 13,
       rationale: "Live market endpoints refreshed the quote and related signals.",
     };
   }
@@ -334,7 +352,7 @@ function buildFreshnessComponent(result: WaterfallResult): ConfidenceComponent {
     return {
       key: "freshness",
       label: "Freshness",
-      score: 11,
+      score: 9,
       rationale: "FMP valuation and estimate endpoints refreshed the report with current market context.",
     };
   }
@@ -343,7 +361,7 @@ function buildFreshnessComponent(result: WaterfallResult): ConfidenceComponent {
     return {
       key: "freshness",
       label: "Freshness",
-      score: 12,
+      score: 10,
       rationale: "Recent filing records are available from SEC EDGAR.",
     };
   }
@@ -352,7 +370,7 @@ function buildFreshnessComponent(result: WaterfallResult): ConfidenceComponent {
     return {
       key: "freshness",
       label: "Freshness",
-      score: 8,
+      score: 6,
       rationale: "Registry data is current enough for entity validation, but not for market timing.",
     };
   }
@@ -386,6 +404,7 @@ function buildFreshnessComponent(result: WaterfallResult): ConfidenceComponent {
 export function computeConfidence(
   result: WaterfallResult,
   entityResolution: EntityResolution,
+  validationReport: ValidationReport,
 ): ConfidenceScore {
   const components: ConfidenceComponent[] = [
     buildIdentityComponent(result, entityResolution),
@@ -408,13 +427,32 @@ export function computeConfidence(
         )}; see breakdown for source-specific coverage.`;
 
   const isAmbiguous = result.finnhub?.data.isAmbiguous ?? false;
+  const hasPrimaryFilingDepth =
+    result.secEdgar !== null && result.secEdgar.data.xbrlFacts !== null;
+  const highGapCount = validationReport.gaps.filter((gap) => gap.severity === "high").length;
+  const mediumGapCount = validationReport.gaps.filter(
+    (gap) => gap.severity === "medium",
+  ).length;
+  const highTensionCount = validationReport.tensions.filter(
+    (tension) => tension.severity === "high",
+  ).length;
+  const mediumTensionCount = validationReport.tensions.filter(
+    (tension) => tension.severity === "medium",
+  ).length;
+  const privateSynthesisOnly =
+    result.exaDeep !== null &&
+    result.secEdgar === null &&
+    result.finnhub === null &&
+    result.fmp === null &&
+    result.companiesHouse === null &&
+    result.gleif === null;
   let finalScore = score;
   let finalLevel = level;
   let finalRationale = rationale;
 
   if (isAmbiguous) {
     components.push({
-      key: "identity",
+      key: "ambiguity-penalty",
       label: "Ambiguity Penalty",
       score: - (score / 2),
       rationale: "Multiple strong candidates exist for this company name; lowering confidence.",
@@ -422,6 +460,78 @@ export function computeConfidence(
     finalScore = Math.floor(score / 2);
     finalLevel = getLevel(finalScore);
     finalRationale = "Entity resolution is ambiguous. " + rationale;
+  }
+
+  if (!isAmbiguous && !hasPrimaryFilingDepth) {
+    const cappedScore =
+      highGapCount >= 2 || mediumGapCount >= 3
+        ? Math.min(finalScore, 72)
+        : Math.min(finalScore, 80);
+
+    if (cappedScore < finalScore) {
+      components.push({
+        key: "underwriting-depth-cap",
+        label: "Underwriting Depth Cap",
+        score: cappedScore - finalScore,
+        rationale:
+          "Structured filing depth is incomplete, so data confidence is capped below a fully underwritten public-company read.",
+      });
+      finalScore = cappedScore;
+      finalLevel = getLevel(finalScore);
+      finalRationale =
+        "Entity certainty is strong, but underwriting-quality evidence is still capped by limited filing depth.";
+    }
+  }
+
+  const underwritingPenalty = Math.min(
+    18,
+    highGapCount * 4 + mediumGapCount * 2 + mediumTensionCount * 2,
+  );
+
+  if (!isAmbiguous && underwritingPenalty > 0) {
+    components.push({
+      key: "underwriting-evidence-penalty",
+      label: "Underwriting Evidence Penalty",
+      score: -underwritingPenalty,
+      rationale:
+        "Open validation gaps still limit underwriting-quality confidence even though source coverage is present.",
+    });
+    finalScore = Math.max(0, finalScore - underwritingPenalty);
+    finalLevel = getLevel(finalScore);
+    finalRationale =
+      "Confidence is moderated by unresolved underwriting gaps even though the entity and source stack are usable.";
+  }
+
+  if (!isAmbiguous && highTensionCount > 0) {
+    components.push({
+      key: "unresolved-tension-penalty",
+      label: "Unresolved Tension Penalty",
+      score: -8,
+      rationale:
+        "High-severity source tensions remain unresolved, which lowers confidence in the assembled read.",
+    });
+    finalScore = Math.max(0, finalScore - 8);
+    finalLevel = getLevel(finalScore);
+    finalRationale =
+      "Confidence is reduced by unresolved evidence tensions even though source coverage is present.";
+  }
+
+  if (!isAmbiguous && privateSynthesisOnly) {
+    const cappedScore = Math.min(finalScore, 58);
+
+    if (cappedScore < finalScore) {
+      components.push({
+        key: "secondary-evidence-cap",
+        label: "Secondary Evidence Cap",
+        score: cappedScore - finalScore,
+        rationale:
+          "Private-company confidence is capped because the read rests mainly on secondary web synthesis rather than corroborated primary evidence.",
+      });
+      finalScore = cappedScore;
+      finalLevel = getLevel(finalScore);
+      finalRationale =
+        "Confidence stays conservative because the private-company read still depends mainly on secondary evidence.";
+    }
   }
 
   return {

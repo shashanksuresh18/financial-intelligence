@@ -33,34 +33,23 @@ function buildCoverageLabel(result: WaterfallResult): ValidationCoverageLabel {
   }
 
   if (
+    (result.exaDeep !== null || result.claudeFallback !== null) &&
+    result.finnhub === null &&
+    result.fmp === null &&
+    result.secEdgar === null &&
+    result.companiesHouse === null &&
+    result.gleif === null
+  ) {
+    return "Limited Private";
+  }
+
+  if (
     result.secEdgar !== null &&
     result.fmp !== null &&
     result.finnhub !== null
   ) {
     return "Strong Public";
   }
-
-  if (
-    result.exaDeep !== null &&
-    result.finnhub === null &&
-    result.fmp === null &&
-    result.secEdgar === null
-  ) {
-    return "Limited Private";
-  }
-
-  if (
-    result.claudeFallback !== null &&
-    result.finnhub === null &&
-    result.fmp === null &&
-    result.secEdgar === null &&
-    result.companiesHouse === null &&
-    result.gleif === null &&
-    result.exaDeep === null
-  ) {
-    return "Thin";
-  }
-
   if (result.companiesHouse !== null || result.gleif !== null) {
     return "Registry-led";
   }
@@ -500,6 +489,45 @@ function detectGaps(result: WaterfallResult): readonly ValidationGap[] {
   const finnhubMarketCap =
     result.finnhub?.data.basicFinancials?.metric.marketCapitalization ?? 0;
   const secXbrlFacts = result.secEdgar?.data.xbrlFacts ?? null;
+  const isPrivateOnly =
+    (result.exaDeep !== null || result.claudeFallback !== null) &&
+    result.finnhub === null &&
+    result.fmp === null &&
+    result.secEdgar === null;
+
+  if (isPrivateOnly) {
+    gaps.push({
+      gap: "Private-company evidence rests on thin web research",
+      detail:
+        result.activeSources.length <= 1
+          ? "The current private-company read relies on a single synthesized web-research source rather than a fuller mix of filings, company materials, or corroborating databases."
+          : "Private-company evidence is still being assembled primarily from synthesized web-research sources rather than primary company disclosure.",
+      severity: "high",
+    });
+  }
+
+  if (result.exaDeep !== null) {
+    if (result.exaDeep.data.estimatedRevenue === null) {
+      gaps.push({
+        gap: "Private revenue visibility is limited",
+        detail:
+          "Exa Deep Research did not surface a current public revenue figure or estimate, which limits mandate-fit and operating-scale assessment for this private company.",
+        severity: "high",
+      });
+    }
+
+    if (
+      result.exaDeep.data.fundingTotal === null &&
+      result.exaDeep.data.lastValuation === null
+    ) {
+      gaps.push({
+        gap: "Capital and valuation context is thin",
+        detail:
+          "Exa Deep Research returned no clear funding total or last-known valuation, which weakens private-market underwriting context.",
+        severity: "medium",
+      });
+    }
+  }
 
   if (
     finnhubSymbol !== null &&
@@ -562,22 +590,11 @@ function detectGaps(result: WaterfallResult): readonly ValidationGap[] {
     }
   }
 
-  if (
-    result.exaDeep !== null &&
-    result.exaDeep.data.fundingTotal === null &&
-    result.exaDeep.data.lastValuation === null
-  ) {
-    gaps.push({
-      gap: "Exa Deep result missing funding or valuation data",
-      detail: "Exa Deep Research identified the company but returned neither a funding total nor a last-known valuation, limiting private-company financial context.",
-      severity: "medium",
-    });
-  }
-
   return gaps;
 }
 
 function computeDataQualityScore(
+  result: WaterfallResult,
   tensions: readonly ValidationTension[],
   gaps: readonly ValidationGap[],
 ): number {
@@ -589,6 +606,24 @@ function computeDataQualityScore(
   score -= gaps.filter((gap) => gap.severity === "high").length * 15;
   score -= gaps.filter((gap) => gap.severity === "medium").length * 5;
 
+  if (result.activeSources.length <= 1) {
+    score -= 15;
+  } else if (result.activeSources.length === 2) {
+    score -= 5;
+  }
+
+  if (
+    result.exaDeep !== null &&
+    result.finnhub === null &&
+    result.fmp === null &&
+    result.secEdgar === null &&
+    result.companiesHouse === null &&
+    result.gleif === null &&
+    result.claudeFallback === null
+  ) {
+    score -= 10;
+  }
+
   return Math.max(0, score);
 }
 
@@ -597,7 +632,7 @@ export function validateWaterfall(result: WaterfallResult): ValidationReport {
   const crossChecks = runCrossChecks(result);
   const tensions = detectTensions(crossChecks);
   const gaps = detectGaps(result);
-  const dataQualityScore = computeDataQualityScore(tensions, gaps);
+  const dataQualityScore = computeDataQualityScore(result, tensions, gaps);
 
   return {
     coverageLabel,

@@ -360,6 +360,20 @@ function dedupeByBestScore(
       continue;
     }
 
+    const currentHasTicker =
+      typeof current.ticker === 'string' && current.ticker.trim().length > 0;
+    const itemHasTicker =
+      typeof item.ticker === 'string' && item.ticker.trim().length > 0;
+
+    if (itemHasTicker && !currentHasTicker) {
+      byKey.set(key, item);
+      continue;
+    }
+
+    if (!itemHasTicker && currentHasTicker) {
+      continue;
+    }
+
     if (
       item.score > current.score ||
       (item.score === current.score && item.name.length < current.name.length)
@@ -449,9 +463,14 @@ export function rankAndDedupeSearchResults(
       (item: ScoredSearchResult): SearchResult => ({
         id: item.id,
         name: item.name,
+        displayName: item.displayName,
+        subtitle: item.subtitle,
+        source: item.source,
         ticker: item.ticker,
+        companyNumber: item.companyNumber,
         jurisdiction: item.jurisdiction,
         description: item.description,
+        canUseAnalyze: item.canUseAnalyze,
       })
     );
 }

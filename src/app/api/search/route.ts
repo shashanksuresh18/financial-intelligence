@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
+  buildCompanySearchVariants,
   getKnownPrivateCompanyCanonicalName,
   isKnownPrivateCompanyQuery,
   rankAndDedupeSearchResults,
@@ -56,6 +57,50 @@ function toPrivateCompanySearchResult(query: string): SearchResult {
   };
 }
 
+async function searchFinnhubWithVariants(
+  query: string,
+): Promise<{
+  readonly success: boolean;
+  readonly results: readonly SearchResult[];
+  readonly error: string | null;
+}> {
+  const variants = buildCompanySearchVariants(query);
+  const aggregatedResults: SearchResult[] = [];
+  let sawSuccessfulLookup = false;
+  let lastError: string | null = null;
+
+  for (const variant of variants) {
+    const result = await searchSymbols(variant);
+
+    if (!result.success) {
+      lastError = result.error;
+      continue;
+    }
+
+    sawSuccessfulLookup = true;
+
+    for (const item of toSearchResults(result.data.result)) {
+      if (!aggregatedResults.some((existing) => existing.id === item.id)) {
+        aggregatedResults.push(item);
+      }
+    }
+  }
+
+  if (sawSuccessfulLookup) {
+    return {
+      success: true,
+      results: aggregatedResults,
+      error: null,
+    };
+  }
+
+  return {
+    success: false,
+    results: [],
+    error: lastError ?? `No symbol search variants succeeded for "${query}"`,
+  };
+}
+
 export async function GET(
   request: NextRequest,
 ): Promise<NextResponse<SearchApiResponse>> {
@@ -73,7 +118,7 @@ export async function GET(
   }
 
   const [finnhubResult, companiesHouseResult, gleifResult] = await Promise.all([
-    searchSymbols(query),
+    searchFinnhubWithVariants(query),
     fetchCompaniesHouseData(query),
     fetchGleifData(query),
   ]);
@@ -99,9 +144,7 @@ export async function GET(
     });
   }
 
-  const finnhub = finnhubResult.success
-    ? toSearchResults(finnhubResult.data.result)
-    : [];
+  const finnhub = finnhubResult.success ? finnhubResult.results : [];
   const companiesHouse = companiesHouseResult.success
     ? toCompaniesHouseSearchResults(companiesHouseResult.data.allMatches)
     : [];

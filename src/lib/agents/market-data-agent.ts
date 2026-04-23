@@ -8,6 +8,7 @@ import type {
   WaterfallResult,
 } from '@/lib/types';
 import {
+  buildCompanySearchVariants,
   hasUkCompanyNameSuffix,
   hasStrongCompanyNameMatch,
   isKnownPrivateCompanyQuery,
@@ -184,6 +185,26 @@ function getCompaniesHouseEntityName(params: {
   );
 }
 
+function hasStrongFmpPublicMatch(
+  query: string,
+  fmpResult: DataSourceResult<FmpData> | null,
+): boolean {
+  if (fmpResult === null || fmpResult.data.companyName === null) {
+    return false;
+  }
+
+  if (!hasStrongCompanyNameMatch(query, fmpResult.data.companyName)) {
+    return false;
+  }
+
+  return (
+    fmpResult.data.historicalMultiples.length > 0 ||
+    fmpResult.data.enterpriseValues.length > 0 ||
+    fmpResult.data.analystEstimates.length > 0 ||
+    fmpResult.data.priceTargetConsensus !== null
+  );
+}
+
 function resolveCompaniesHouseDecision(params: {
   readonly query: string;
   readonly finnhubResult: FinnhubFetchResult;
@@ -213,6 +234,27 @@ function resolveCompaniesHouseDecision(params: {
     return {
       skip: true,
       reason: 'known_private_company',
+      entity,
+    };
+  }
+
+  if (
+    params.query
+      .trim()
+      .split(/\s+/)
+      .filter((token) => token.length > 0).length === 1
+  ) {
+    return {
+      skip: true,
+      reason: 'generic_single_token_non_uk_query',
+      entity,
+    };
+  }
+
+  if (hasStrongFmpPublicMatch(params.query, params.fmpResult)) {
+    return {
+      skip: true,
+      reason: 'strong_public_match_on_fmp',
       entity,
     };
   }
@@ -311,6 +353,40 @@ function createSkippedFinnhubResult(query: string): FinnhubFetchResult {
   };
 }
 
+async function resolveAlternativePublicSources(
+  query: string,
+): Promise<{
+  readonly finnhubResult: FinnhubFetchResult;
+  readonly secEdgarResult: SecEdgarFetchResult;
+} | null> {
+  const variants = buildCompanySearchVariants(query).slice(1);
+
+  for (const variant of variants) {
+    const finnhubResult = await fetchFinnhubData(variant);
+    const tickerHint =
+      finnhubResult.success && finnhubResult.data.symbol.trim().length > 0
+        ? finnhubResult.data.symbol
+        : undefined;
+    const secEdgarResult = await fetchSecEdgarData(variant, { tickerHint });
+
+    if (finnhubResult.success || secEdgarResult.success) {
+      console.info('[market-data-agent] recovered public lookup from query variant', {
+        query,
+        variant,
+        finnhub: finnhubResult.success,
+        secEdgar: secEdgarResult.success,
+      });
+
+      return {
+        finnhubResult,
+        secEdgarResult,
+      };
+    }
+  }
+
+  return null;
+}
+
 export async function runWaterfall(
   input: WaterfallInput
 ): Promise<WaterfallResult> {
@@ -330,17 +406,29 @@ export async function runWaterfall(
     : fetchFmpData(input.query);
   const gleifPromise = fetchGleifData(input.query);
 
-  const finnhubResult = await finnhubPromise;
+  let finnhubResult = await finnhubPromise;
   const tickerHint =
     finnhubResult.success && finnhubResult.data.symbol.trim().length > 0
       ? finnhubResult.data.symbol
       : undefined;
 
-  const [edgarResult, gleifResult, fmpResult] = await Promise.all([
+  const [initialEdgarResult, gleifResult, fmpResult] = await Promise.all([
     fetchSecEdgarData(input.query, { tickerHint }),
     gleifPromise,
     fmpPromise,
   ]);
+  let edgarResult = initialEdgarResult;
+
+  if (!shouldForcePrivateRoute && !finnhubResult.success && !edgarResult.success) {
+    const alternativePublicSources = await resolveAlternativePublicSources(
+      input.query
+    );
+
+    if (alternativePublicSources !== null) {
+      finnhubResult = alternativePublicSources.finnhubResult;
+      edgarResult = alternativePublicSources.secEdgarResult;
+    }
+  }
   const fmp = fmpResult === null ? null : wrapSource('fmp', fmpResult);
   const companiesHouseDecision = resolveCompaniesHouseDecision({
     query: input.query,

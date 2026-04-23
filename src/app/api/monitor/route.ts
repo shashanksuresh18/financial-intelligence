@@ -18,6 +18,24 @@ function summarizeSections(report: AnalysisReport): {
   );
 }
 
+function resolveMonitorUpdatedAt(
+  recordUpdatedAt: Date,
+  parsedReport: AnalysisReport | null,
+): string {
+  if (parsedReport === null) {
+    return recordUpdatedAt.toISOString();
+  }
+
+  const reportTimestamp = Date.parse(parsedReport.updatedAt);
+  const recordTimestamp = recordUpdatedAt.getTime();
+
+  if (Number.isNaN(reportTimestamp)) {
+    return recordUpdatedAt.toISOString();
+  }
+
+  return new Date(Math.max(recordTimestamp, reportTimestamp)).toISOString();
+}
+
 async function buildMonitorPayload(): Promise<{
   readonly items: readonly MonitorItem[];
   readonly summary: NonNullable<MonitorApiResponse["summary"]>;
@@ -40,7 +58,7 @@ async function buildMonitorPayload(): Promise<{
         id: record.id,
         label: record.companyName,
         status: record.status as "idle" | "watching",
-        updatedAt: record.updatedAt.toISOString(),
+        updatedAt: resolveMonitorUpdatedAt(record.updatedAt, parsedReport),
         snapshot:
           parsedReport === null || sectionSummary === null
             ? null

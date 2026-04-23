@@ -25,10 +25,10 @@ export function ConfidenceBreakdown({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        {confidence.components.map((component) => (
+        {confidence.components.map((component, index) => (
           <div
             className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-4 py-4"
-            key={component.key}
+            key={`${component.key}-${component.label}-${index}`}
           >
             <div className="flex items-center justify-between gap-4">
               <p className="text-sm font-medium text-zinc-100">{component.label}</p>

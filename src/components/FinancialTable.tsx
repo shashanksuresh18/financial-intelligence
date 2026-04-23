@@ -58,6 +58,10 @@ function formatMetricValue(metric: FinancialMetric): string {
     return value;
   }
 
+  if (metric.label === "Market Cap (USDm)" || metric.label === "Enterprise Value (USDm)") {
+    return COMPACT_CURRENCY_FORMATTER.format(value * 1_000_000);
+  }
+
   if (format === "percent") {
     return formatPercentValue(value);
   }

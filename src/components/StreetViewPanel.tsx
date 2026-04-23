@@ -1,5 +1,7 @@
 import type { StreetView } from "@/lib/types";
 
+import SectionInfoTooltip from "./SectionInfoTooltip";
+
 type StreetViewPanelProps = {
   readonly streetView: StreetView | null;
 };
@@ -33,9 +35,15 @@ export function StreetViewPanel({
     return (
       <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
         <div className="mb-4">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
-            Street View
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
+              Street View
+            </h3>
+            <SectionInfoTooltip
+              align="end"
+              content="Public-market analyst positioning and targets. This is supporting context, not the house view."
+            />
+          </div>
           <p className="mt-1 text-sm text-zinc-500">
             No structured analyst or target-price evidence is available for this company yet.
           </p>
@@ -47,9 +55,15 @@ export function StreetViewPanel({
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
       <div className="mb-4">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
-          Street View
-        </h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">
+            Street View
+          </h3>
+          <SectionInfoTooltip
+            align="end"
+            content="Public-market analyst positioning and targets. This is supporting context, not the house view."
+          />
+        </div>
         <p className="mt-1 text-sm text-zinc-500">
           Consensus positioning, target-price framing, and recommendation trend context.
         </p>
