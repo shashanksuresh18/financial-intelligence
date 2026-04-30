@@ -48,6 +48,7 @@ const MANDATE_FIT_STYLES: Record<InvestmentMandateFit, string> = {
   "Aligned mandate": "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
   "Borderline mandate fit": "border-amber-400/20 bg-amber-400/10 text-amber-200",
   "Out of mandate": "border-sky-400/20 bg-sky-400/10 text-sky-200",
+  "n/a â€” benchmark territory": "border-sky-400/20 bg-sky-400/10 text-sky-200",
 };
 
 const STRESS_TEST_SEVERITY_STYLES: Record<ValidationSeverity, string> = {

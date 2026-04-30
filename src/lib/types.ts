@@ -224,7 +224,8 @@ export type RecommendationGapLoad = 'contained' | 'meaningful' | 'heavy';
 export type InvestmentMandateFit =
   | 'Aligned mandate'
   | 'Borderline mandate fit'
-  | 'Out of mandate';
+  | 'Out of mandate'
+  | 'n/a â€” benchmark territory';
 
 export type InvestmentRole =
   | 'Core target'
@@ -245,7 +246,155 @@ export type RecommendationLogic = {
   readonly confidenceLimitingReasons: readonly string[];
 };
 
-export type InvestmentMemo = {
+export type BusinessModelTag =
+  | 'saas-subscription'
+  | 'saas-consumption'
+  | 'marketplace'
+  | 'payments-fintech'
+  | 'bnpl-fintech'
+  | 'uk-retail-lfl'
+  | 'uk-staples'
+  | 'industrial-b2b'
+  | 'outsourcing-services'
+  | 'ai-infrastructure'
+  | 'mega-cap-benchmark'
+  | 'private-early'
+  | 'private-growth'
+  | 'turnaround'
+  | 'other';
+
+export type EvidenceAnchor = {
+  readonly id: string;
+  readonly source: DataSource;
+  readonly label: string;
+  readonly value: string;
+  readonly period: string | null;
+};
+
+export type ThesisDriver = {
+  readonly claim: string;
+  readonly interpretation: string;
+  readonly evidenceId: string;
+  readonly confidence: ConfidenceLevel;
+  readonly currentlyHolds: boolean;
+  readonly ifFails: string;
+};
+
+export type UnitEconomicMetric =
+  | {
+      readonly label: string;
+      readonly status: 'available';
+      readonly value: string | number;
+      readonly trajectory: 'expanding' | 'stable' | 'contracting' | null;
+      readonly evidenceId: string;
+      readonly vsPublicComps: string | null;
+    }
+  | {
+      readonly label: string;
+      readonly status: 'not_applicable';
+      readonly reason: string;
+    }
+  | {
+      readonly label: string;
+      readonly status: 'insufficient_evidence';
+      readonly reason: string;
+    };
+
+export type UnitEconomics = {
+  readonly businessModelTag: BusinessModelTag;
+  readonly metrics: readonly UnitEconomicMetric[];
+  readonly turnaroundSignal: {
+    readonly metric: string;
+    readonly fromValue: string;
+    readonly toValue: string;
+    readonly managementTarget: string | null;
+    readonly evidenceId: string;
+  } | null;
+};
+
+export type PricedInAnalysis = {
+  readonly impliedGrowthRate: string;
+  readonly currentMultiple: string;
+  readonly vsHistoricalAvg: string;
+  readonly vsPeerMedian: string;
+  readonly ourGrowthAssumption: string;
+  readonly conclusion: string;
+  readonly evidenceIds: readonly string[];
+};
+
+export type InvestmentScenario = {
+  readonly scenario: string;
+  readonly assumptions: readonly string[];
+  readonly quantifiedOutcome: string;
+  readonly impliedMultiple: string | null;
+  readonly probabilityHint: string;
+};
+
+export type VariantView = {
+  readonly consensusView: string;
+  readonly ourView: string;
+  readonly reasoning: string;
+  readonly evidenceIds: readonly string[];
+  readonly keyDebate: string;
+};
+
+export type Catalyst = {
+  readonly event: string;
+  readonly expectedTiming: string;
+  readonly directionOfImpact: 'positive' | 'negative' | 'uncertain';
+  readonly magnitude: 'high' | 'medium' | 'low';
+  readonly thesisDriverIndex: number | null;
+};
+
+export type KillCriterion = {
+  readonly condition: string;
+  readonly thesisDriverIndex: number | null;
+  readonly newRecommendation: InvestmentRecommendation;
+};
+
+export type MandateRationale = {
+  readonly fit: InvestmentMandateFit;
+  readonly reasoning: string;
+  readonly benchmarkValue: string | null;
+};
+
+export type ComparablePeer = {
+  readonly name: string;
+  readonly ticker: string | null;
+  readonly peRatio: number | null;
+  readonly evToEbitda: number | null;
+  readonly revenueGrowth: number | null;
+  readonly grossMargin: number | null;
+  readonly source: DataSource;
+};
+
+export type ComparablesAnchor = {
+  readonly peerGroup: readonly ComparablePeer[];
+  readonly medianRow: {
+    readonly peRatio: number | null;
+    readonly evToEbitda: number | null;
+    readonly revenueGrowth: number | null;
+    readonly grossMargin: number | null;
+  };
+  readonly subjectVsMedian: string;
+  readonly modelingNote: string | null;
+};
+
+export type AmakorDepthScore = 1 | 2 | 3 | 4 | 5;
+
+export type AmakorDepthIndex = {
+  readonly thesisDepth: AmakorDepthScore;
+  readonly antiThesis: AmakorDepthScore;
+  readonly valuationRigor: AmakorDepthScore;
+  readonly peerBenchmarking: AmakorDepthScore;
+  readonly evidenceQuality: AmakorDepthScore;
+  readonly actionability: AmakorDepthScore;
+  readonly privateDepth: AmakorDepthScore;
+  readonly mandateFit: AmakorDepthScore;
+  readonly overall: AmakorDepthScore;
+};
+
+export type LegacyInvestmentMemo = {
   readonly recommendation: InvestmentRecommendation;
   readonly displayRecommendationLabel: string;
   readonly conviction: ConfidenceLevel;
@@ -271,6 +420,21 @@ export type InvestmentMemo = {
   readonly unknowns: readonly string[];
   readonly logic: RecommendationLogic;
   readonly stressTest?: StressTestResult | null;
+};
+
+export type InvestmentMemo = LegacyInvestmentMemo & {
+  readonly evidenceAnchors?: readonly EvidenceAnchor[] | null;
+  readonly thesisDrivers?: readonly ThesisDriver[] | null;
+  readonly unitEconomics?: UnitEconomics | null;
+  readonly bullCase?: InvestmentScenario | null;
+  readonly bearCase?: InvestmentScenario | null;
+  readonly pricedInAnalysis?: PricedInAnalysis | null;
+  readonly variantView?: VariantView | null;
+  readonly catalysts?: readonly Catalyst[] | null;
+  readonly whatWouldChangeTheCall?: readonly KillCriterion[] | null;
+  readonly comparablesAnchor?: ComparablesAnchor | null;
+  readonly mandateRationale?: MandateRationale | null;
+  readonly amakorDepthIndex?: AmakorDepthIndex | null;
 };
 
 export type ReportDelta = {

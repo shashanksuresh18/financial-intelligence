@@ -2,9 +2,10 @@
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "installCommand": "npm install",
+  "fluid": true,
   "functions": {
-    "src/app/api/analyze/route.ts": { "maxDuration": 60 },
-    "src/app/api/themes/route.ts": { "maxDuration": 60 },
+    "src/app/api/analyze/route.ts": { "maxDuration": 300 },
+    "src/app/api/themes/route.ts": { "maxDuration": 300 },
     "src/app/api/search/route.ts": { "maxDuration": 15 },
     "src/app/api/monitor/route.ts": { "maxDuration": 15 }
   }

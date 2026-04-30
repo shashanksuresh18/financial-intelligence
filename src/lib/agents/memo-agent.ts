@@ -1,3 +1,5 @@
+import Anthropic from "@anthropic-ai/sdk";
+
 import { generateNarrative } from "@/lib/claude-narrative";
 import { buildInvestmentMemo } from "@/lib/investment-memo";
 import {
@@ -6,21 +8,31 @@ import {
 } from "@/lib/nebius-memo";
 import type {
   ChallengerReport,
+  ComparablePeer,
+  ComparablesAnchor,
   ConfidenceLevel,
   ConfidenceScore,
   CoverageGap,
+  DataSource,
   DisagreementNote,
   EarningsHighlight,
   EntityResolution,
+  EvidenceAnchor,
   EvidenceSignal,
   FinancialMetric,
   InvestmentMemo,
+  InvestmentScenario,
+  KillCriterion,
+  MandateRationale,
   NewsHighlight,
+  PricedInAnalysis,
   ResearchNoteSection,
   SectionAuditItem,
   StressTestResult,
   StreetView,
+  ThesisDriver,
   ValidationReport,
+  ValuationMetricComparison,
   ValuationView,
   WaterfallResult,
 } from "@/lib/types";
@@ -47,6 +59,209 @@ type MemoAgentResult = {
   readonly investmentMemo: InvestmentMemo;
   readonly narrative: string;
   readonly sections: readonly ResearchNoteSection[];
+};
+
+type SynthesizedDepthFields = {
+  readonly thesisDrivers: readonly ThesisDriver[] | null;
+  readonly bullCase: InvestmentScenario | null;
+  readonly bearCase: InvestmentScenario | null;
+  readonly pricedInAnalysis: {
+    readonly impliedGrowthRate: string;
+    readonly ourGrowthAssumption: string;
+    readonly conclusion: string;
+  } | null;
+  readonly comparablesAnchor: {
+    readonly subjectVsMedian: string;
+    readonly modelingNote: string | null;
+  } | null;
+  readonly whatWouldChangeTheCall: readonly KillCriterion[] | null;
+};
+
+type DepthMemoFields = Pick<
+  InvestmentMemo,
+  | "amakorDepthIndex"
+  | "bearCase"
+  | "bullCase"
+  | "comparablesAnchor"
+  | "evidenceAnchors"
+  | "mandateRationale"
+  | "pricedInAnalysis"
+  | "thesisDrivers"
+  | "unitEconomics"
+  | "variantView"
+  | "whatWouldChangeTheCall"
+  | "catalysts"
+>;
+
+type PrimaryValuationContext = {
+  readonly metric: ValuationMetricComparison | null;
+  readonly peerMedian: number | null;
+  readonly evidenceIds: readonly string[];
+};
+
+const MODEL_CANDIDATES = [
+  process.env.ANTHROPIC_MODEL?.trim(),
+  "claude-sonnet-4-20250514",
+].filter((value): value is string => typeof value === "string" && value.length > 0);
+
+const DEPTH_FIELDS_MAX_TOKENS = 2200;
+
+const DEPTH_FIELDS_OUTPUT_SCHEMA: {
+  additionalProperties: boolean;
+  properties: Record<string, unknown>;
+  required: string[];
+  type: "object";
+} = {
+  additionalProperties: false,
+  properties: {
+    thesisDrivers: {
+      items: {
+        additionalProperties: false,
+        properties: {
+          claim: { type: "string" },
+          confidence: { enum: ["high", "medium", "low"], type: "string" },
+          currentlyHolds: { type: "boolean" },
+          evidenceId: { type: "string" },
+          ifFails: { type: "string" },
+          interpretation: { type: "string" },
+        },
+        required: [
+          "claim",
+          "interpretation",
+          "evidenceId",
+          "confidence",
+          "currentlyHolds",
+          "ifFails",
+        ],
+        type: "object",
+      },
+      maxItems: 5,
+      minItems: 3,
+      type: "array",
+    },
+    bullCase: {
+      anyOf: [
+        {
+          additionalProperties: false,
+          properties: {
+            assumptions: {
+              items: { type: "string" },
+              minItems: 2,
+              type: "array",
+            },
+            impliedMultiple: {
+              anyOf: [{ type: "string" }, { type: "null" }],
+            },
+            probabilityHint: { type: "string" },
+            quantifiedOutcome: { type: "string" },
+            scenario: { type: "string" },
+          },
+          required: [
+            "scenario",
+            "assumptions",
+            "quantifiedOutcome",
+            "impliedMultiple",
+            "probabilityHint",
+          ],
+          type: "object",
+        },
+        { type: "null" },
+      ],
+    },
+    bearCase: {
+      anyOf: [
+        {
+          additionalProperties: false,
+          properties: {
+            assumptions: {
+              items: { type: "string" },
+              minItems: 2,
+              type: "array",
+            },
+            impliedMultiple: {
+              anyOf: [{ type: "string" }, { type: "null" }],
+            },
+            probabilityHint: { type: "string" },
+            quantifiedOutcome: { type: "string" },
+            scenario: { type: "string" },
+          },
+          required: [
+            "scenario",
+            "assumptions",
+            "quantifiedOutcome",
+            "impliedMultiple",
+            "probabilityHint",
+          ],
+          type: "object",
+        },
+        { type: "null" },
+      ],
+    },
+    comparablesAnchor: {
+      anyOf: [
+        {
+          additionalProperties: false,
+          properties: {
+            modelingNote: {
+              anyOf: [{ type: "string" }, { type: "null" }],
+            },
+            subjectVsMedian: { type: "string" },
+          },
+          required: ["subjectVsMedian", "modelingNote"],
+          type: "object",
+        },
+        { type: "null" },
+      ],
+    },
+    pricedInAnalysis: {
+      anyOf: [
+        {
+          additionalProperties: false,
+          properties: {
+            conclusion: { type: "string" },
+            impliedGrowthRate: { type: "string" },
+            ourGrowthAssumption: { type: "string" },
+          },
+          required: ["impliedGrowthRate", "ourGrowthAssumption", "conclusion"],
+          type: "object",
+        },
+        { type: "null" },
+      ],
+    },
+    whatWouldChangeTheCall: {
+      anyOf: [
+        {
+          items: {
+            additionalProperties: false,
+            properties: {
+              condition: { type: "string" },
+              newRecommendation: {
+                enum: ["buy", "watch", "hold", "avoid"],
+                type: "string",
+              },
+              thesisDriverIndex: {
+                anyOf: [{ type: "integer" }, { type: "null" }],
+              },
+            },
+            required: ["condition", "thesisDriverIndex", "newRecommendation"],
+            type: "object",
+          },
+          minItems: 1,
+          type: "array",
+        },
+        { type: "null" },
+      ],
+    },
+  },
+  required: [
+    "thesisDrivers",
+    "bullCase",
+    "bearCase",
+    "pricedInAnalysis",
+    "comparablesAnchor",
+    "whatWouldChangeTheCall",
+  ],
+  type: "object",
 };
 
 function downgradeConviction(level: ConfidenceLevel): ConfidenceLevel {
@@ -96,6 +311,714 @@ function buildStressTest(
     convictionDowngraded: downgraded,
     originalConviction,
   };
+}
+
+function serializeError(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    const typedError = error as Error & {
+      readonly status?: number;
+      readonly headers?: unknown;
+      readonly error?: unknown;
+      readonly cause?: unknown;
+    };
+
+    return {
+      name: typedError.name,
+      message: typedError.message,
+      status: typedError.status ?? null,
+      error: typedError.error ?? null,
+      cause: typedError.cause ?? null,
+    };
+  }
+
+  if (typeof error === "object" && error !== null) {
+    return { ...(error as Record<string, unknown>) };
+  }
+
+  return { error: String(error) };
+}
+
+function isNewMemoSchemaEnabled(): boolean {
+  const configured = process.env.NEW_MEMO_SCHEMA?.trim().toLowerCase();
+
+  if (configured === undefined || configured.length === 0) {
+    return process.env.NODE_ENV !== "production";
+  }
+
+  return ["1", "true", "yes", "on"].includes(configured);
+}
+
+function slugify(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
+
+function nextUniqueId(baseId: string, used: Set<string>): string {
+  if (!used.has(baseId)) {
+    used.add(baseId);
+    return baseId;
+  }
+
+  let counter = 2;
+
+  while (used.has(`${baseId}-${counter}`)) {
+    counter += 1;
+  }
+
+  const nextId = `${baseId}-${counter}`;
+  used.add(nextId);
+  return nextId;
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatPercent(value: number): string {
+  if (Math.abs(value) <= 1) {
+    return new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 1,
+      style: "percent",
+    }).format(value);
+  }
+
+  return `${formatNumber(value)}%`;
+}
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: Math.abs(value) >= 1_000 ? 1 : 2,
+    notation: Math.abs(value) >= 1_000 ? "compact" : "standard",
+    style: "currency",
+  }).format(value);
+}
+
+function formatMetricValue(metric: FinancialMetric): string {
+  if (metric.value === null) {
+    return "n/a";
+  }
+
+  if (typeof metric.value === "string") {
+    return metric.value;
+  }
+
+  if (metric.format === "percent") {
+    return formatPercent(metric.value);
+  }
+
+  if (metric.format === "currency") {
+    return formatCurrency(metric.value);
+  }
+
+  return formatNumber(metric.value);
+}
+
+function formatMultiple(value: number | null): string {
+  return value === null ? "n/a" : `${value.toFixed(1)}x`;
+}
+
+function buildEvidenceAnchors(input: MemoAgentInput): readonly EvidenceAnchor[] {
+  const anchors: EvidenceAnchor[] = [];
+  const usedIds = new Set<string>();
+
+  const pushAnchor = (
+    source: DataSource,
+    label: string,
+    value: string,
+    period: string | null,
+  ): void => {
+    const id = nextUniqueId(`${source}:${slugify(label)}`, usedIds);
+    anchors.push({
+      id,
+      source,
+      label,
+      value,
+      period,
+    });
+  };
+
+  for (const metric of input.metrics) {
+    if (metric.source === undefined || metric.value === null) {
+      continue;
+    }
+
+    pushAnchor(
+      metric.source,
+      metric.label,
+      formatMetricValue(metric),
+      metric.period ?? null,
+    );
+  }
+
+  for (const signal of input.evidenceSignals) {
+    const primarySource = signal.sources[0];
+
+    if (primarySource === undefined) {
+      continue;
+    }
+
+    pushAnchor(primarySource, signal.title, signal.detail, null);
+  }
+
+  for (const metric of input.valuationView?.metrics ?? []) {
+    const source = metric.source ?? input.valuationView?.source ?? "fmp";
+
+    if (metric.current !== null) {
+      pushAnchor(source, `${metric.label} current`, formatMultiple(metric.current), null);
+    }
+
+    if (metric.forward !== null) {
+      pushAnchor(source, `${metric.label} forward`, formatMultiple(metric.forward), null);
+    }
+  }
+
+  for (const earnings of input.earningsHighlights.slice(0, 3)) {
+    const actual =
+      earnings.actual === null ? "actual n/a" : `actual ${formatNumber(earnings.actual)}`;
+    const estimate =
+      earnings.estimate === null
+        ? "estimate n/a"
+        : `estimate ${formatNumber(earnings.estimate)}`;
+    const surprise =
+      earnings.surprisePercent === null
+        ? "surprise n/a"
+        : `surprise ${formatPercent(earnings.surprisePercent)}`;
+
+    pushAnchor(
+      earnings.source,
+      `Earnings ${earnings.period}`,
+      `${actual}; ${estimate}; ${surprise}`,
+      earnings.period,
+    );
+  }
+
+  return anchors;
+}
+
+function findEvidenceIds(
+  anchors: readonly EvidenceAnchor[],
+  labelPatterns: readonly string[],
+): readonly string[] {
+  const normalizedPatterns = labelPatterns.map((pattern) => pattern.toLowerCase());
+
+  return anchors
+    .filter((anchor) =>
+      normalizedPatterns.some((pattern) => anchor.label.toLowerCase().includes(pattern)),
+    )
+    .map((anchor) => anchor.id);
+}
+
+function median(values: readonly number[]): number | null {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const sorted = [...values].sort((left, right) => left - right);
+  const midpoint = Math.floor(sorted.length / 2);
+
+  if (sorted.length % 2 === 0) {
+    return (sorted[midpoint - 1] + sorted[midpoint]) / 2;
+  }
+
+  return sorted[midpoint];
+}
+
+function getPeerMetricMedian(
+  peers: readonly ComparablePeer[],
+  metric: ValuationMetricComparison["label"],
+): number | null {
+  if (metric === "P/E") {
+    return median(
+      peers
+        .map((peer) => peer.peRatio)
+        .filter((value): value is number => value !== null),
+    );
+  }
+
+  if (metric === "EV / EBITDA") {
+    return median(
+      peers
+        .map((peer) => peer.evToEbitda)
+        .filter((value): value is number => value !== null),
+    );
+  }
+
+  return null;
+}
+
+function buildComparablePeers(input: MemoAgentInput): readonly ComparablePeer[] {
+  return (input.waterfallResult.fmp?.data.peers ?? []).map((peer) => ({
+    name: peer.companyName,
+    ticker: peer.symbol,
+    peRatio: peer.peRatio,
+    evToEbitda: peer.evToEbitda,
+    revenueGrowth: peer.revenueGrowth,
+    grossMargin: null,
+    source: "fmp",
+  }));
+}
+
+function selectPrimaryValuationContext(
+  input: MemoAgentInput,
+  anchors: readonly EvidenceAnchor[],
+  peers: readonly ComparablePeer[],
+): PrimaryValuationContext {
+  const metrics = input.valuationView?.metrics ?? [];
+  const preferredOrder: readonly ValuationMetricComparison["label"][] = [
+    "EV / Sales",
+    "EV / EBITDA",
+    "P/E",
+    "P/B",
+  ];
+
+  const selectedMetric =
+    preferredOrder
+      .map((label) => metrics.find((metric) => metric.label === label && metric.current !== null))
+      .find((metric): metric is ValuationMetricComparison => metric !== undefined) ??
+    metrics.find((metric) => metric.current !== null) ??
+    null;
+
+  if (selectedMetric === null) {
+    return {
+      metric: null,
+      peerMedian: null,
+      evidenceIds: [],
+    };
+  }
+
+  return {
+    metric: selectedMetric,
+    peerMedian: getPeerMetricMedian(peers, selectedMetric.label),
+    evidenceIds: findEvidenceIds(anchors, [selectedMetric.label.toLowerCase()]),
+  };
+}
+
+function buildFallbackSubjectVsMedian(
+  context: PrimaryValuationContext,
+): string {
+  if (context.metric === null || context.metric.current === null) {
+    return "Peer median comparison is unavailable because the current memo lacks a usable public multiple.";
+  }
+
+  if (context.peerMedian === null) {
+    return `${context.metric.label} is currently ${formatMultiple(context.metric.current)}, but a clean peer-median comparison is not available in the current peer set.`;
+  }
+
+  const delta = context.metric.current - context.peerMedian;
+  const relative = Math.abs(delta) < 0.05 ? "roughly in line with" : delta > 0 ? "above" : "below";
+
+  return `${context.metric.label} is ${formatMultiple(context.metric.current)} versus a peer median of ${formatMultiple(context.peerMedian)}, leaving the stock ${relative} the comp set before any view on quality or durability.`;
+}
+
+function buildComparablesAnchor(
+  input: MemoAgentInput,
+  context: PrimaryValuationContext,
+): ComparablesAnchor | null {
+  const peerGroup = buildComparablePeers(input);
+
+  if (peerGroup.length === 0) {
+    return null;
+  }
+
+  return {
+    peerGroup,
+    medianRow: {
+      peRatio: median(
+        peerGroup
+          .map((peer) => peer.peRatio)
+          .filter((value): value is number => value !== null),
+      ),
+      evToEbitda: median(
+        peerGroup
+          .map((peer) => peer.evToEbitda)
+          .filter((value): value is number => value !== null),
+      ),
+      revenueGrowth: median(
+        peerGroup
+          .map((peer) => peer.revenueGrowth)
+          .filter((value): value is number => value !== null),
+      ),
+      grossMargin: median(
+        peerGroup
+          .map((peer) => peer.grossMargin)
+          .filter((value): value is number => value !== null),
+      ),
+    },
+    subjectVsMedian: buildFallbackSubjectVsMedian(context),
+    modelingNote:
+      context.metric?.label === "EV / Sales"
+        ? "Growth-oriented names can screen more cleanly on revenue multiples than on earnings multiples when current profitability understates strategic position."
+        : null,
+  };
+}
+
+function buildHistoricalComparison(metric: ValuationMetricComparison | null): string {
+  if (metric === null || metric.current === null) {
+    return "Historical multiple context is unavailable in the current evidence set.";
+  }
+
+  if (metric.historicalLow === null && metric.historicalHigh === null) {
+    return `Current ${metric.label} is ${formatMultiple(metric.current)}, but historical range data is unavailable.`;
+  }
+
+  const midpoint =
+    metric.historicalLow !== null && metric.historicalHigh !== null
+      ? (metric.historicalLow + metric.historicalHigh) / 2
+      : null;
+  const midpointText =
+    midpoint === null ? "" : ` midpoint around ${formatMultiple(midpoint)}.`;
+
+  return `Current ${metric.label} is ${formatMultiple(metric.current)} versus a historical range of ${formatMultiple(metric.historicalLow)} to ${formatMultiple(metric.historicalHigh)}.${midpointText}`;
+}
+
+function buildPeerComparison(metric: ValuationMetricComparison | null, peerMedian: number | null): string {
+  if (metric === null || metric.current === null) {
+    return "Peer multiple context is unavailable because no current public multiple was captured.";
+  }
+
+  if (peerMedian === null) {
+    return `Current ${metric.label} is ${formatMultiple(metric.current)}, but peer-median context is unavailable for that metric.`;
+  }
+
+  return `Current ${metric.label} is ${formatMultiple(metric.current)} versus a peer median of ${formatMultiple(peerMedian)}.`;
+}
+
+function buildPricedInAnalysis(
+  memo: InvestmentMemo,
+  context: PrimaryValuationContext,
+  synthesized: SynthesizedDepthFields["pricedInAnalysis"],
+): PricedInAnalysis | null {
+  if (memo.role === "Private diligence") {
+    return null;
+  }
+
+  return {
+    impliedGrowthRate:
+      synthesized?.impliedGrowthRate ??
+      "insufficient evidence: no structured growth-implied multiple bridge was generated on this run.",
+    currentMultiple:
+      context.metric === null || context.metric.current === null
+        ? "Primary current multiple unavailable in the evidence set."
+        : `${formatMultiple(context.metric.current)} ${context.metric.label}`,
+    vsHistoricalAvg: buildHistoricalComparison(context.metric),
+    vsPeerMedian: buildPeerComparison(context.metric, context.peerMedian),
+    ourGrowthAssumption:
+      synthesized?.ourGrowthAssumption ??
+      "insufficient evidence: no explicit house growth bridge was generated on this run.",
+    conclusion:
+      synthesized?.conclusion ??
+      "Current valuation context is available, but the memo did not complete a structured 'what's priced in' interpretation.",
+    evidenceIds: context.evidenceIds,
+  };
+}
+
+function buildMandateRationale(memo: InvestmentMemo): MandateRationale {
+  if (memo.role === "Reference public comp") {
+    return {
+      fit: memo.mandateFit,
+      reasoning:
+        "The company is analytically useful because it carries high-quality public market evidence, but the memo treats it primarily as a benchmark rather than a direct target.",
+      benchmarkValue:
+        "Useful as a public-market benchmark for valuation, margin structure, and Street expectations.",
+    };
+  }
+
+  if (memo.role === "Private diligence") {
+    return {
+      fit: memo.mandateFit,
+      reasoning:
+        memo.mandateFit === "Out of mandate"
+          ? "The company may be strategically interesting, but the current evidence base and underwriting fit are too weak for a direct target classification."
+          : "The company fits the thematic opportunity set, but the current case still depends on primary diligence before it becomes fully underwriteable.",
+      benchmarkValue: null,
+    };
+  }
+
+  return {
+    fit: memo.mandateFit,
+    reasoning:
+      memo.mandateFit === "Aligned mandate"
+        ? "The current evidence set supports treating the company as a live mandate-fit candidate rather than only a reference point."
+        : "The company has some strategic relevance, but mandate fit remains conditional on stronger evidence or cleaner underwriting support.",
+    benchmarkValue: null,
+  };
+}
+
+function buildFallbackKillCriteria(
+  memo: InvestmentMemo,
+): readonly KillCriterion[] {
+  return [
+    {
+      condition: memo.keyDisqualifier,
+      thesisDriverIndex: null,
+      newRecommendation: "avoid",
+    },
+  ];
+}
+
+function clampDriverIndex(
+  index: number | null,
+  driverCount: number,
+): number | null {
+  if (index === null || !Number.isInteger(index)) {
+    return null;
+  }
+
+  if (index < 0 || index >= driverCount) {
+    return null;
+  }
+
+  return index;
+}
+
+function sanitizeThesisDrivers(
+  drivers: readonly ThesisDriver[] | null,
+  anchors: readonly EvidenceAnchor[],
+): readonly ThesisDriver[] | null {
+  if (drivers === null || drivers.length === 0 || anchors.length === 0) {
+    return null;
+  }
+
+  const allowedIds = new Set(anchors.map((anchor) => anchor.id));
+  const fallbackId = anchors[0]?.id ?? null;
+
+  if (fallbackId === null) {
+    return null;
+  }
+
+  return drivers.slice(0, 5).map((driver) => ({
+    ...driver,
+    evidenceId: allowedIds.has(driver.evidenceId) ? driver.evidenceId : fallbackId,
+  }));
+}
+
+function buildDepthSystemPrompt(isPrivateCompany: boolean): string {
+  return [
+    "You are writing structured buy-side memo fields for an investment analysis product.",
+    "Return only valid JSON matching the provided schema.",
+    "Do not mirror a metric into a sentence. Every interpretation must answer 'so what?' for an investor.",
+    "Thesis drivers must be structured arguments for why the case works, not generic business descriptions.",
+    "Every claim that cites evidence must use one of the provided evidenceIds exactly.",
+    "If the company is public, pricedInAnalysis must not be null and must explain what the current multiple is already discounting.",
+    "If the company is private, pricedInAnalysis must be null.",
+    "Bear and bull cases must include a specific implied multiple when possible; otherwise explain that evidence is insufficient.",
+    "Kill criteria must be measurable and investor-facing, not vague prose.",
+    isPrivateCompany
+      ? "This company should be treated as private or diligence-led, so stay conservative and explicit about evidence limits."
+      : "This company should be treated as public, so prioritize valuation framing, consensus mismatch, and what is already priced in.",
+  ].join(" ");
+}
+
+function buildDepthPromptPayload(
+  input: MemoAgentInput,
+  memo: InvestmentMemo,
+  anchors: readonly EvidenceAnchor[],
+  comparablesAnchor: ComparablesAnchor | null,
+  pricedInAnalysis: PricedInAnalysis | null,
+): string {
+  const payload = {
+    company: input.company,
+    entityResolution: {
+      canonicalName: input.entityResolution.canonicalName,
+      note: input.entityResolution.note,
+      primarySource: input.entityResolution.primarySource,
+    },
+    recommendationFrame: {
+      recommendation: memo.recommendation,
+      displayRecommendationLabel: memo.displayRecommendationLabel,
+      role: memo.role,
+      mandateFit: memo.mandateFit,
+      conviction: memo.conviction,
+    },
+    legacyMemo: {
+      verdict: memo.verdict,
+      thesis: memo.thesis,
+      antiThesis: memo.antiThesis,
+      whyNow: memo.whyNow,
+      valuationCase: memo.valuationCase,
+      upsideCase: memo.upsideCase,
+      downsideCase: memo.downsideCase,
+      keyDisqualifier: memo.keyDisqualifier,
+    },
+    logic: {
+      supportingReasons: memo.logic.supportingReasons,
+      confidenceLimitingReasons: memo.logic.confidenceLimitingReasons,
+      tensions: memo.logic.tensions,
+    },
+    evidenceAnchors: anchors,
+    valuationContext:
+      pricedInAnalysis === null
+        ? null
+        : {
+            currentMultiple: pricedInAnalysis.currentMultiple,
+            vsHistoricalAvg: pricedInAnalysis.vsHistoricalAvg,
+            vsPeerMedian: pricedInAnalysis.vsPeerMedian,
+          },
+    comparablesContext:
+      comparablesAnchor === null
+        ? null
+        : {
+            peerCount: comparablesAnchor.peerGroup.length,
+            peerGroup: comparablesAnchor.peerGroup.slice(0, 8),
+            medianRow: comparablesAnchor.medianRow,
+            fallbackSubjectVsMedian: comparablesAnchor.subjectVsMedian,
+            fallbackModelingNote: comparablesAnchor.modelingNote,
+          },
+    coverageGaps: input.coverageGaps.slice(0, 8),
+    disagreementNotes: input.disagreementNotes.slice(0, 6),
+    recentNews: input.newsHighlights.slice(0, 3).map((item) => ({
+      headline: item.headline,
+      summary: item.summary,
+      source: item.source,
+    })),
+    sectionAudit: input.sectionAudit,
+  };
+
+  return JSON.stringify(payload, null, 2);
+}
+
+async function synthesizeDepthFields(
+  input: MemoAgentInput,
+  memo: InvestmentMemo,
+): Promise<DepthMemoFields> {
+  if (!isNewMemoSchemaEnabled()) {
+    return {};
+  }
+
+  const evidenceAnchors = buildEvidenceAnchors(input);
+  const comparablePeers = buildComparablePeers(input);
+  const primaryValuationContext = selectPrimaryValuationContext(
+    input,
+    evidenceAnchors,
+    comparablePeers,
+  );
+  const comparablesAnchorBase = buildComparablesAnchor(input, primaryValuationContext);
+  const pricedInBase = buildPricedInAnalysis(memo, primaryValuationContext, null);
+  const baseDepthFields: DepthMemoFields = {
+    evidenceAnchors,
+    thesisDrivers: null,
+    unitEconomics: null,
+    bullCase: null,
+    bearCase: null,
+    pricedInAnalysis: pricedInBase,
+    variantView: null,
+    catalysts: null,
+    whatWouldChangeTheCall: buildFallbackKillCriteria(memo),
+    comparablesAnchor: comparablesAnchorBase,
+    mandateRationale: buildMandateRationale(memo),
+    amakorDepthIndex: null,
+  };
+
+  let client: Anthropic;
+
+  try {
+    client = new Anthropic();
+  } catch (error: unknown) {
+    console.error(
+      `[memo-agent] depth synthesis unavailable for ${input.company}: ${JSON.stringify(
+        serializeError(error),
+      )}`,
+    );
+    return baseDepthFields;
+  }
+
+  const isPrivateCompany = memo.role === "Private diligence";
+  const prompt = buildDepthPromptPayload(
+    input,
+    memo,
+    evidenceAnchors,
+    comparablesAnchorBase,
+    pricedInBase,
+  );
+
+  for (const model of MODEL_CANDIDATES) {
+    try {
+      const response = await client.messages.create({
+        model,
+        max_tokens: DEPTH_FIELDS_MAX_TOKENS,
+        system: buildDepthSystemPrompt(isPrivateCompany),
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        tool_choice: {
+          type: "tool",
+          name: "emit_depth_fields",
+        },
+        tools: [
+          {
+            name: "emit_depth_fields",
+            description:
+              "Emit the structured memo depth fields as a single JSON-schema-valid tool input object.",
+            input_schema: DEPTH_FIELDS_OUTPUT_SCHEMA,
+          },
+        ],
+      });
+
+      const toolBlock = response.content.find(
+        (block) => block.type === "tool_use" && block.name === "emit_depth_fields",
+      );
+      const parsed = toolBlock?.type === "tool_use"
+        ? (toolBlock.input as SynthesizedDepthFields)
+        : null;
+
+      if (parsed === null) {
+        continue;
+      }
+
+      const sanitizedDrivers = sanitizeThesisDrivers(parsed.thesisDrivers, evidenceAnchors);
+      const driverCount = sanitizedDrivers?.length ?? 0;
+      const sanitizedKillCriteria =
+        parsed.whatWouldChangeTheCall === null
+          ? baseDepthFields.whatWouldChangeTheCall
+          : parsed.whatWouldChangeTheCall.map((item) => ({
+              ...item,
+              thesisDriverIndex: clampDriverIndex(item.thesisDriverIndex, driverCount),
+            }));
+
+      return {
+        ...baseDepthFields,
+        thesisDrivers: sanitizedDrivers,
+        bullCase: parsed.bullCase,
+        bearCase: parsed.bearCase,
+        pricedInAnalysis: buildPricedInAnalysis(
+          memo,
+          primaryValuationContext,
+          parsed.pricedInAnalysis,
+        ),
+        comparablesAnchor:
+          comparablesAnchorBase === null
+            ? null
+            : {
+                ...comparablesAnchorBase,
+                subjectVsMedian:
+                  parsed.comparablesAnchor?.subjectVsMedian ??
+                  comparablesAnchorBase.subjectVsMedian,
+                modelingNote:
+                  parsed.comparablesAnchor?.modelingNote ??
+                  comparablesAnchorBase.modelingNote,
+              },
+        whatWouldChangeTheCall: sanitizedKillCriteria,
+      };
+    } catch (error: unknown) {
+      console.error(
+        `[memo-agent] depth synthesis failed for ${input.company} on ${model}: ${JSON.stringify(
+          serializeError(error),
+        )}`,
+      );
+    }
+  }
+
+  return baseDepthFields;
 }
 
 export async function runMemoAgent(
@@ -160,9 +1083,14 @@ export async function runMemoAgent(
     conviction: finalConviction,
     stressTest,
   };
+  const depthFields = await synthesizeDepthFields(input, finalMemo);
+  const schemaMemo: InvestmentMemo = {
+    ...finalMemo,
+    ...depthFields,
+  };
   const nebiusOverrides = await synthesizeNebiusMemo({
     company: input.company,
-    memo: finalMemo,
+    memo: schemaMemo,
     confidence: input.confidence,
     entityResolution: input.entityResolution,
     metrics: input.metrics,
@@ -175,7 +1103,7 @@ export async function runMemoAgent(
     disagreementNotes: augmentedDisagreementNotes,
     sources: input.waterfallResult.activeSources,
   });
-  const enrichedMemo = applyNebiusMemoOverrides(finalMemo, nebiusOverrides);
+  const enrichedMemo = applyNebiusMemoOverrides(schemaMemo, nebiusOverrides);
   const narrativeResult = await generateNarrative({
     company: input.company,
     entityResolution: input.entityResolution,
@@ -188,18 +1116,22 @@ export async function runMemoAgent(
     sectionAudit: input.sectionAudit,
   });
 
-  console.info("[memo-agent] completed", {
-    company: input.company,
-    configuredModel:
-      process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-20250514",
-    nebiusMemoApplied: nebiusOverrides !== null,
-    nebiusModel: process.env.NEBIUS_LLM_MODEL?.trim() || null,
-    challengerApplied: challengerReport !== null,
-    originalConviction: baseMemo.conviction,
-    finalConviction,
-    convictionDowngraded,
-    validationCoverage: input.validationReport.coverageLabel,
-  });
+  console.info(
+    `[memo-agent] completed ${JSON.stringify({
+      company: input.company,
+      configuredModel:
+        process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-20250514",
+      nebiusMemoApplied: nebiusOverrides !== null,
+      nebiusModel: process.env.NEBIUS_LLM_MODEL?.trim() || null,
+      challengerApplied: challengerReport !== null,
+      newMemoSchemaEnabled: isNewMemoSchemaEnabled(),
+      originalConviction: baseMemo.conviction,
+      finalConviction,
+      convictionDowngraded,
+      thesisDriverCount: enrichedMemo.thesisDrivers?.length ?? 0,
+      validationCoverage: input.validationReport.coverageLabel,
+    })}`,
+  );
 
   return {
     investmentMemo: enrichedMemo,

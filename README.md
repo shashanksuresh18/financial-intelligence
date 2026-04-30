@@ -6,10 +6,21 @@ Source-backed company analysis for fast diligence. This app combines structured 
 
 - Analyze public companies with filing-backed and market-data-backed evidence.
 - Analyze private companies with Exa Deep research and a thinner fallback path when primary disclosure is limited.
-- Generate an investment memo, then stress-test it with a report-aware challenger agent.
+- Generate an investment memo with thesis drivers, quantified bull/bear framing, priced-in analysis, kill criteria, and mandate rationale, then stress-test it with a report-aware challenger agent.
 - Surface recent developments, news sentiment, valuation context, coverage gaps, and evidence tensions.
 - Explore investment themes and click through from a theme to a company analysis.
 - Cache reports and keep a small monitored-company list.
+
+## Post-Rewrite Status
+
+The current rewrite moves the product from a source aggregator toward an underwriting assistant. Reports now separate what the evidence says from what an investor should do with it:
+
+- mega-cap public names can be treated as `Reference public comp` instead of being rejected as out-of-mandate targets
+- memo output includes thesis drivers, scenario framing, priced-in analysis, and explicit conditions that would change the call
+- public names lean on SEC/Finnhub/FMP evidence, while private names stay conservative and label primary-diligence gaps directly
+- the challenger step reviews the draft memo for missing assumptions, evidence gaps, and plausible counter-scenarios
+
+The most visible remaining product gap is peer-comparison density. FMP often returns a peer set before returning a full cross-sectional grid, so some reports can identify comparable companies while still missing peer P/E, revenue growth, margin, or EV/EBITDA fields.
 
 ## Product Flow
 
@@ -74,6 +85,7 @@ The Prisma schema in [`prisma/schema.prisma`](prisma/schema.prisma) documents th
 - Theme exploration with click-through to company analysis
 - Recommendation plus separate analyst `role` classification
 - Explicit separation between `Data Confidence` and `Investment Conviction`
+- Structured memo depth fields: `thesisDrivers`, `bullCase`, `bearCase`, `pricedInAnalysis`, `comparablesAnchor`, `whatWouldChangeTheCall`, `mandateRationale`, and `amakorDepthIndex`
 - Display-layer private-company labels like `Primary diligence required` and `Pass for now`
 - Public-comp / out-of-mandate handling for mega-cap names
 - Recent Developments panel near the top of the report
@@ -162,6 +174,38 @@ Useful smoke tests after setup:
 - Thin private-name behavior: `Anthropic`, `OpenAI`, `xAI`
 - Themes tab: `AI inference chips`, `BNPL payments`
 
+## Refreshing Evaluation Runs
+
+Use the analyze API with `forceRefresh: true` when schema or memo logic changes and cached reports are stale.
+
+```bash
+npm run dev -- -p 3001
+$env:ANALYZE_ENDPOINT='http://localhost:3001/api/analyze'
+node scripts/refresh-eval-after.mjs
+```
+
+The batch runner writes fresh API responses to `eval/after/` for:
+
+- Apple
+- NVIDIA
+- Microsoft
+- Diageo
+- Compass Group
+- Klarna
+- Stripe
+- Greggs
+- Rolls-Royce
+- Snowflake
+
+If the UI shows `Analysis failed` immediately, verify the API route directly before assuming the model pipeline failed:
+
+```bash
+Invoke-WebRequest -UseBasicParsing -Method Get -Uri http://localhost:3001/api/search?q=Apple
+Invoke-WebRequest -UseBasicParsing -Method Post -Uri http://localhost:3001/api/analyze -ContentType 'application/json' -Body '{"company":"Apple"}'
+```
+
+A `404` from these API routes usually means the local Next dev server is stale or wedged. Restart `npm run dev` and retry.
+
 ## Recommendation Model
 
 The app does not treat recommendation as the only output. Each report includes:
@@ -235,6 +279,7 @@ Each major section includes a small info icon with short analyst guidance on wha
 - Challenger output is materially better, but it is still model-assisted rather than fully deterministic.
 - Nebius improves memo wording, but the grounded pipeline remains the source of truth.
 - Some valuation and peer panels are much stronger when `FMP_API_KEY` is configured.
+- Peer comparison currently has a known density gap: FMP can return peer symbols and names without the full P/E, growth, margin, and EV/EBITDA grid. The next tactical fix should enrich the peer rows from FMP ratio/growth endpoints or a Finnhub basic-financials fallback before changing the display layer.
 
 ## Supporting Docs
 
@@ -258,6 +303,7 @@ This repo is beyond the original MVP scaffold. The current system includes:
 - recent developments and finance-news sentiment
 - analyst-style recommendation plus role classification
 - explicit data-confidence vs investment-conviction framing
+- structured thesis/scenario/kill-criteria memo fields
 - section-help tooltips for analyst UX
 
-The next high-value work is likely deeper private-company evidence, stronger retrieval corpora, and more analyst-grade valuation / unit-economics support.
+The next high-value work is likely peer-grid enrichment, deeper private-company evidence, stronger retrieval corpora, and more analyst-grade valuation / unit-economics support.

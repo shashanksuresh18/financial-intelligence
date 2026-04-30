@@ -782,22 +782,25 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
     () => runMemoAgent(memoContext),
     EMPTY_MEMO_RESULT,
   );
-  const challengeStep = await runStep(
-    "challengeMemo",
-    () =>
-      runChallengerAgent({
-        company: entityResolution.displayName,
-        draftMemo: draftStep.data.investmentMemo,
-        waterfallResult,
-        validationReport,
-        metrics,
-        evidenceSignals,
-        coverageGaps,
-        disagreementNotes,
-        sectionAudit,
-      }),
-    emptyChallengerReport(),
-  );
+  const isBenchmark = draftStep.data.investmentMemo.role === "Reference public comp";
+  const challengeStep = isBenchmark
+    ? { data: emptyChallengerReport(), ms: 0 }
+    : await runStep(
+        "challengeMemo",
+        () =>
+          runChallengerAgent({
+            company: entityResolution.displayName,
+            draftMemo: draftStep.data.investmentMemo,
+            waterfallResult,
+            validationReport,
+            metrics,
+            evidenceSignals,
+            coverageGaps,
+            disagreementNotes,
+            sectionAudit,
+          }),
+        emptyChallengerReport(),
+      );
   const finalStep = await runStep(
     "generateFinalMemo",
     () => runMemoAgent({ ...memoContext, challengerReport: challengeStep.data }),

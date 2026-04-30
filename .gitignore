@@ -12,6 +12,10 @@ dist/
 *.tsbuildinfo
 next-env.d.ts
 npm-debug.log*
+*.log
+*.err
+cache_dump.txt
+eval/after/
 .vscode/
 .idea/
 *.swp

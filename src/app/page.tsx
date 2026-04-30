@@ -331,10 +331,25 @@ export default function Home(): JSX.Element {
         method: "POST",
         signal: controller.signal,
       });
-      const data = (await response.json()) as AnalyzeApiResponse;
 
       if (requestId !== latestAnalysisRequestRef.current) {
         return;
+      }
+
+      if (response.status === 408 || response.status === 504) {
+        setError(
+          "Analysis timed out on the hosted deployment. Please retry in a moment. If this keeps happening, the Vercel function duration needs to be increased.",
+        );
+        return;
+      }
+
+      let data: AnalyzeApiResponse | null = null;
+
+      try {
+        const raw = await response.text();
+        data = raw.length > 0 ? (JSON.parse(raw) as AnalyzeApiResponse) : null;
+      } catch {
+        data = null;
       }
 
       if (response.status === 429) {
@@ -342,8 +357,13 @@ export default function Home(): JSX.Element {
         return;
       }
 
-      if (!response.ok || !data.ok || !data.report) {
-        setError(data.error ?? "Analysis failed");
+      if (!response.ok || data?.ok !== true || !data.report) {
+        setError(
+          data?.error ??
+            (response.status >= 500
+              ? "The hosted analysis request failed. Please retry in a moment."
+              : "Analysis failed"),
+        );
         return;
       }
 

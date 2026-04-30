@@ -2062,7 +2062,7 @@ function buildVerdict(
 
 export function buildInvestmentMemo(input: InvestmentMemoInput): InvestmentMemo {
   const coverageProfile = getCoverageProfile(input);
-  const mandateFit = deriveMandateFit(input);
+  const preliminaryFit = deriveMandateFit(input);
   const logicBase = classifyLogic(input, coverageProfile);
   const supportingReasons = buildSupportingReasons(input, logicBase);
   const confidenceLimitingReasons = buildConfidenceLimitingReasons(input, logicBase);
@@ -2071,9 +2071,13 @@ export function buildInvestmentMemo(input: InvestmentMemoInput): InvestmentMemo 
     supportingReasons,
     confidenceLimitingReasons,
   };
-  const recommendation = deriveRecommendation(input, coverageProfile, mandateFit, logic);
+  const recommendation = deriveRecommendation(input, coverageProfile, preliminaryFit, logic);
   const conviction = deriveConviction(input, recommendation, logic);
-  const role = deriveRole(input, recommendation, mandateFit, logicBase);
+  const role = deriveRole(input, recommendation, preliminaryFit, logicBase);
+  const mandateFit =
+    role === "Reference public comp"
+      ? "n/a â€” benchmark territory"
+      : preliminaryFit;
   const displayRecommendationLabel = buildDisplayRecommendationLabel(
     input,
     recommendation,
