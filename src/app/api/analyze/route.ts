@@ -6,18 +6,24 @@ import {
   isKnownUkCompanyQuery,
 } from "@/lib/company-search";
 import { db } from "@/lib/db";
-import { buildInvestmentMemo } from "@/lib/investment-memo";
+import {
+  buildInferenceLayer,
+  buildInvestmentMemo,
+  buildJudgmentLayer,
+} from "@/lib/investment-memo";
 import {
   enrichNewsHighlight,
   summarizeNewsSentiment,
 } from "@/lib/news-sentiment";
 import { buildNarrativeSummary, parseNarrativeSections } from "@/lib/narrative-sections";
+import { buildFactLayer } from "@/lib/report-assembly";
 import {
   buildPrivateResearchDevelopments,
   buildRecentDevelopments,
 } from "@/lib/recent-developments";
 import {
   placeholderAnalysisReport,
+  defaultReconciliationStatus,
   type AnalysisReport,
   type AnalyzeApiResponse,
   type InvestmentMemo,
@@ -63,8 +69,13 @@ function normalizeReportShape(report: AnalysisReport): AnalysisReport {
     sections,
     deltas: report.deltas ?? [],
     newsHighlights: normalizedNewsHighlights,
+    metrics: report.metrics ?? [],
+    analystConsensus: report.analystConsensus ?? [],
     streetView: report.streetView ?? null,
     valuationView: report.valuationView ?? null,
+    reconciliationStatus: report.reconciliationStatus ?? defaultReconciliationStatus,
+    withheldSections: report.withheldSections ?? [],
+    peerRelevanceScores: report.peerRelevanceScores ?? [],
     peerComparison: report.peerComparison ?? [],
     earningsHighlights: report.earningsHighlights ?? [],
     insiderActivity: report.insiderActivity ?? [],
@@ -125,24 +136,50 @@ function normalizeReportShape(report: AnalysisReport): AnalysisReport {
     validationReport: normalizedBase.validationReport,
     waterfallResult: fallbackWaterfallResult,
   });
-  const investmentMemo =
-    hasAnalystMemoShape
+  const cachedMemo = hasModernMemoShape
+    ? (report.investmentMemo as InvestmentMemo)
+    : null;
+  const preservedMemo =
+    hasAnalystMemoShape && cachedMemo !== null
       ? {
           ...rebuiltMemo,
-          stressTest:
-            (report.investmentMemo as InvestmentMemo).stressTest ??
-            rebuiltMemo.stressTest ??
-            null,
+          ...cachedMemo,
+          stressTest: cachedMemo.stressTest ?? rebuiltMemo.stressTest ?? null,
         }
       : {
           ...rebuiltMemo,
           stressTest:
-            hasModernMemoShape
-              ? (report.investmentMemo as InvestmentMemo).stressTest ??
-                rebuiltMemo.stressTest ??
-                null
-              : rebuiltMemo.stressTest ?? null,
+            cachedMemo?.stressTest ?? rebuiltMemo.stressTest ?? null,
         };
+  const factLayer =
+    preservedMemo.factLayer ??
+    buildFactLayer(
+      fallbackWaterfallResult,
+      normalizedBase.metrics,
+      preservedMemo.evidenceAnchors ?? [],
+    );
+  const inferenceLayer =
+    preservedMemo.inferenceLayer ??
+    buildInferenceLayer(
+      factLayer,
+      normalizedBase.metrics,
+      normalizedBase.valuationView,
+    );
+  const memoWithLayers: InvestmentMemo = {
+    ...preservedMemo,
+    factLayer,
+    inferenceLayer,
+  };
+  const investmentMemo = {
+    ...memoWithLayers,
+    judgmentLayer:
+      memoWithLayers.judgmentLayer ??
+      buildJudgmentLayer(
+        memoWithLayers,
+        normalizedBase.confidence,
+        normalizedBase.withheldSections,
+      ),
+  };
   const summary =
     investmentMemo.verdict.trim().length > 0
       ? investmentMemo.verdict

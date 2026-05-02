@@ -1,4 +1,4 @@
-import type { AnalystConsensusEntry } from "@/lib/types";
+import type { AnalystConsensusEntry, EvidenceClass } from "@/lib/types";
 
 type AnalystConsensusProps = {
   readonly items?: readonly AnalystConsensusEntry[];
@@ -32,6 +32,32 @@ function formatTargetPrice(targetPrice: number | null): string {
   return PRICE_FORMATTER.format(targetPrice);
 }
 
+const EVIDENCE_CLASS_LABELS: Record<EvidenceClass, string> = {
+  "primary-filing": "Primary filing",
+  registry: "Registry",
+  "market-data-vendor": "Market data",
+  "analyst-consensus": "Analyst consensus",
+  "news-reporting": "News",
+  "synthesized-web": "Synthesized web",
+  "model-inference": "Model inference",
+};
+
+function EvidenceClassBadge({
+  evidenceClass,
+}: {
+  readonly evidenceClass: EvidenceClass | null | undefined;
+}) {
+  if (evidenceClass === null || evidenceClass === undefined) {
+    return null;
+  }
+
+  return (
+    <span className="rounded-full border border-zinc-700 bg-zinc-950/70 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-zinc-300">
+      {EVIDENCE_CLASS_LABELS[evidenceClass]}
+    </span>
+  );
+}
+
 export function AnalystConsensus({
   items = [],
 }: AnalystConsensusProps) {
@@ -59,7 +85,12 @@ export function AnalystConsensus({
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-zinc-100">{item.firm}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-medium text-zinc-100">{item.firm}</p>
+                    <EvidenceClassBadge
+                      evidenceClass={item.evidenceClass ?? "analyst-consensus"}
+                    />
+                  </div>
                   <p className="mt-1 text-xs uppercase tracking-[0.18em] text-zinc-500">
                     {item.period ? `Latest published stance (${item.period})` : "Latest published stance"}
                   </p>

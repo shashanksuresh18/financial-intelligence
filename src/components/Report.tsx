@@ -5,11 +5,16 @@ import { type JSX, type ReactNode, useState } from "react";
 import type {
   AnalysisReport,
   DataSource,
+  DriverMetricStatus,
+  EvidenceClass,
   FinancialMetric,
   InvestmentMemo,
   ResearchNoteSection,
   SectionAuditItem,
+  WithheldSection,
 } from "@/lib/types";
+
+import { archetypeLabel } from "@/lib/driver-trees";
 
 import AnalystConsensus from "./AnalystConsensus";
 import ConfidenceBreakdown from "./ConfidenceBreakdown";
@@ -40,6 +45,7 @@ type MetricCard = {
   readonly value: string;
   readonly period: string | null;
   readonly sourceLabel: string;
+  readonly evidenceClass: EvidenceClass | null;
   readonly deltaPercent: number | null;
 };
 
@@ -114,6 +120,56 @@ const SOURCE_LABELS: Record<DataSource, string> = {
   "claude-fallback": "Claude Fallback",
 };
 
+const EVIDENCE_CLASS_LABELS: Record<EvidenceClass, string> = {
+  "primary-filing": "Primary filing",
+  registry: "Registry",
+  "market-data-vendor": "Market data",
+  "analyst-consensus": "Analyst consensus",
+  "news-reporting": "News",
+  "synthesized-web": "Synthesized web",
+  "model-inference": "Model inference",
+};
+
+function EvidenceClassBadge({
+  evidenceClass,
+}: {
+  readonly evidenceClass: EvidenceClass | null | undefined;
+}) {
+  if (evidenceClass === null || evidenceClass === undefined) {
+    return null;
+  }
+
+  return (
+    <span className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-zinc-300">
+      {EVIDENCE_CLASS_LABELS[evidenceClass]}
+    </span>
+  );
+}
+
+function evidenceClassForUiSource(source: DataSource): EvidenceClass {
+  if (source === "sec-edgar") {
+    return "primary-filing";
+  }
+
+  if (source === "companies-house" || source === "gleif") {
+    return "registry";
+  }
+
+  if (source === "exa-deep") {
+    return "synthesized-web";
+  }
+
+  if (source === "claude-fallback") {
+    return "model-inference";
+  }
+
+  return "market-data-vendor";
+}
+
+function modelInferenceBadge(): JSX.Element {
+  return <EvidenceClassBadge evidenceClass="model-inference" />;
+}
+
 const RECOMMENDATION_STYLES: Record<
   AnalysisReport["investmentMemo"]["recommendation"],
   string
@@ -139,8 +195,24 @@ const MANDATE_FIT_STYLES: Record<
   "Aligned mandate": "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
   "Borderline mandate fit": "border-amber-400/20 bg-amber-400/10 text-amber-200",
   "Out of mandate": "border-sky-400/20 bg-sky-400/10 text-sky-200",
-  "n/a â€” benchmark territory": "border-sky-400/20 bg-sky-400/10 text-sky-200",
+  "Benchmark territory": "border-sky-400/20 bg-sky-400/10 text-sky-200",
 };
+
+function formatMandateFitLabel(
+  value: AnalysisReport["investmentMemo"]["mandateFit"],
+): string {
+  return value.toLowerCase().includes("benchmark territory")
+    ? "Benchmark territory"
+    : value;
+}
+
+function getMandateFitStyle(
+  value: AnalysisReport["investmentMemo"]["mandateFit"],
+): string {
+  const normalized = formatMandateFitLabel(value) as AnalysisReport["investmentMemo"]["mandateFit"];
+
+  return MANDATE_FIT_STYLES[normalized] ?? MANDATE_FIT_STYLES["Borderline mandate fit"];
+}
 
 const COVERAGE_STYLES: Record<string, string> = {
   "Strong Public":
@@ -312,6 +384,7 @@ function buildMetricCards(metrics: readonly FinancialMetric[]): readonly MetricC
       value: formatMetricValue(primaryMetric),
       period: primaryMetric.period ?? null,
       sourceLabel: primaryMetric.source ? SOURCE_LABELS[primaryMetric.source] : "Unattributed",
+      evidenceClass: primaryMetric.evidenceClass ?? null,
       deltaPercent,
     };
   });
@@ -349,6 +422,9 @@ function hasDepthMemoView(memo: InvestmentMemo): boolean {
     "bullCase",
     "bearCase",
     "whatWouldChangeTheCall",
+    "factLayer",
+    "inferenceLayer",
+    "judgmentLayer",
   ].some((key) => Object.prototype.hasOwnProperty.call(memo, key));
 }
 
@@ -410,27 +486,145 @@ function formatOptionalPercent(value: number | null): string {
   return value === null ? "-" : formatPercentValue(value);
 }
 
-function renderDepthMemoPanel(memo: InvestmentMemo): JSX.Element {
+function withheldMessage(
+  withheldSections: readonly WithheldSection[],
+  section: WithheldSection["section"],
+): string | null {
+  return withheldSections.find((item) => item.section === section)?.userMessage ?? null;
+}
+
+function renderDepthMemoPanel(
+  memo: InvestmentMemo,
+  withheldSections: readonly WithheldSection[],
+): JSX.Element {
   const thesisDrivers = memo.thesisDrivers ?? [];
   const bullCase = memo.bullCase;
   const bearCase = memo.bearCase;
   const changeCriteria = memo.whatWouldChangeTheCall ?? [];
   const comparablesAnchor = memo.comparablesAnchor ?? null;
   const pricedInAnalysis = memo.pricedInAnalysis ?? null;
+  const evidenceAnchorById = new Map(
+    (memo.evidenceAnchors ?? []).map((anchor) => [anchor.id, anchor]),
+  );
+  const pricedInWithheld = withheldMessage(withheldSections, "priced-in-analysis");
+  const scenarioWithheld = withheldMessage(withheldSections, "scenario-range");
+  const privateThesisWithheld = withheldMessage(withheldSections, "private-thesis");
+  const getAnchorEvidenceClass = (ids: readonly string[]): EvidenceClass | null =>
+    ids
+      .map((id) => evidenceAnchorById.get(id)?.evidenceClass ?? null)
+      .find((evidenceClass): evidenceClass is EvidenceClass => evidenceClass !== null) ??
+    null;
+  const evidenceAnchors = memo.evidenceAnchors ?? [];
+  const prioritizedDrivers =
+    memo.driverTree?.drivers.filter(
+      (driver) => driver.importance === "critical" || driver.status === "missing",
+    ) ?? [];
+  const topDrivers =
+    prioritizedDrivers.length > 0
+      ? prioritizedDrivers.slice(0, 3)
+      : memo.driverTree?.drivers.slice(0, 3) ?? [];
+  const missingDriverItems = memo.driverTree?.drivers.filter((driver) => driver.status === "missing") ?? [];
+  const missingChecklistItems =
+    memo.diligenceChecklist?.items.filter((item) => item.status === "missing") ?? [];
+  const factItems =
+    memo.factLayer !== null && memo.factLayer !== undefined && memo.factLayer.items.length > 0
+      ? memo.factLayer.items.slice(0, 8).map((fact, index) => ({
+          detail: `${fact.claim}: ${fact.value ?? "n/a"}`,
+          evidenceClass: fact.evidenceClass,
+          id: fact.evidenceId ?? `fact-layer-${index}`,
+          label: fact.claim,
+        }))
+      : evidenceAnchors.length > 0
+        ? evidenceAnchors.slice(0, 8).map((anchor) => ({
+            detail: `${anchor.label}${anchor.period === null ? "" : ` (${anchor.period})`}: ${anchor.value}`,
+            evidenceClass: anchor.evidenceClass ?? evidenceClassForUiSource(anchor.source),
+            id: anchor.id,
+            label: anchor.label,
+          }))
+        : memo.verifiedFacts.slice(0, 8).map((fact, index) => ({
+            detail: fact,
+            evidenceClass: "model-inference" as EvidenceClass,
+            id: `legacy-fact-${index}`,
+            label: `Legacy fact ${index + 1}`,
+          }));
+  const formalInferenceItems =
+    memo.inferenceLayer?.items.map((item, index) => ({
+      detail: item.claim,
+      evidenceClass: "model-inference" as EvidenceClass,
+      id: `inference-layer-${index}`,
+      label: titleCase(item.mechanismType),
+    })) ?? [];
+  const inferenceItems =
+    formalInferenceItems.length > 0
+      ? formalInferenceItems.slice(0, 5)
+      : [
+          ...memo.reasonedInference.slice(0, 3).map((item, index) => ({
+            detail: item,
+            evidenceClass: "model-inference" as EvidenceClass,
+            id: `legacy-inference-${index}`,
+            label: `Inference ${index + 1}`,
+          })),
+          ...(pricedInAnalysis === null
+            ? []
+            : [
+                {
+                  detail: pricedInAnalysis.conclusion,
+                  evidenceClass: "model-inference" as EvidenceClass,
+                  id: "priced-in-conclusion",
+                  label: "Priced-in conclusion",
+                },
+              ]),
+          ...(memo.variantView === null || memo.variantView === undefined
+            ? []
+            : [
+                {
+                  detail: memo.variantView.reasoning,
+                  evidenceClass: "model-inference" as EvidenceClass,
+                  id: "variant-view",
+                  label: memo.variantView.keyDebate,
+                },
+              ]),
+        ].slice(0, 5);
+  const cannotUnderwriteItems = [
+    ...(memo.judgmentLayer?.blockReasons ?? []).map((reason, index) => ({
+      detail: reason,
+      id: `judgment-block-${index}`,
+      label: "judgment block",
+      tone: "critical" as const,
+    })),
+    ...withheldSections.map((section) => ({
+      detail: section.userMessage,
+      id: `withheld-${section.section}`,
+      label: section.section.replace(/-/g, " "),
+      tone: "withheld" as const,
+    })),
+    ...missingChecklistItems.map((item) => ({
+      detail: item.note,
+      id: `checklist-${item.field}`,
+      label: item.label,
+      tone: item.isCritical ? ("critical" as const) : ("missing" as const),
+    })),
+    ...missingDriverItems.map((driver) => ({
+      detail: driver.note ?? "Missing driver required before conviction can be upgraded.",
+      id: `driver-${driver.name}`,
+      label: driver.name,
+      tone: driver.importance === "critical" ? ("critical" as const) : ("missing" as const),
+    })),
+  ];
 
   return (
     <section className="fi-fade-in space-y-6">
-      <section className="rounded-[2rem] border border-zinc-800 bg-gradient-to-br from-zinc-950 via-zinc-900/80 to-emerald-950/10 p-6 shadow-[0_26px_80px_-44px_rgba(0,0,0,0.98)]">
+      <section className="rounded-[2rem] border border-zinc-800 bg-zinc-950/80 p-6 shadow-[0_26px_80px_-44px_rgba(0,0,0,0.98)]">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-4xl">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">Investment Memo</p>
+              <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">Underwriting View</p>
               <SectionInfoTooltip
-                content="The new memo schema turns the output into driver-based arguments, priced-in framing, and typed change-of-view criteria rather than only prose sections."
+                content="The report leads with evidence, inference, missing underwriting work, and explicit change-of-view triggers."
               />
             </div>
             <h3 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-100">
-              {memo.verdict}
+              {memo.displayRecommendationLabel}: {memo.role}
             </h3>
             <p className="mt-4 text-sm font-light leading-relaxed text-zinc-400">
               {memo.convictionSummary}
@@ -459,6 +653,205 @@ function renderDepthMemoPanel(memo: InvestmentMemo): JSX.Element {
         </div>
       </section>
 
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <MemoSectionCard
+          className="border-l-4 border-l-emerald-400/50"
+          eyebrow="What We Know"
+          infoText="Source-backed facts from evidence anchors. Badges show the evidence class behind each fact."
+          title="Facts"
+        >
+          <div className="space-y-3">
+            {factItems.length === 0 ? (
+              <p className="text-sm font-light leading-relaxed text-zinc-500">
+                No source-backed facts are attached to this cached report.
+              </p>
+            ) : (
+              factItems.map((item) => (
+                <div
+                  className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4"
+                  key={item.id}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+                      {item.label}
+                    </p>
+                    <EvidenceClassBadge evidenceClass={item.evidenceClass} />
+                  </div>
+                  <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
+                    {item.detail}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+        </MemoSectionCard>
+
+        <MemoSectionCard
+          className="border-l-4 border-l-sky-400/50"
+          eyebrow="What We Infer"
+          infoText="Interpretations derived from the fact set, valuation frame, or memo model. These are not raw source facts."
+          title="Inferences"
+        >
+          <div className="space-y-3">
+            {inferenceItems.length === 0 ? (
+              <p className="text-sm font-light leading-relaxed text-zinc-500">
+                No explicit inference layer is attached to this report.
+              </p>
+            ) : (
+              inferenceItems.map((item) => (
+                <div
+                  className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4"
+                  key={item.id}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+                      {item.label}
+                    </p>
+                    <EvidenceClassBadge evidenceClass={item.evidenceClass} />
+                  </div>
+                  <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
+                    {item.detail}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+        </MemoSectionCard>
+      </div>
+
+      <MemoSectionCard
+        className="border-rose-400/35 bg-rose-950/20"
+        eyebrow="What We Cannot Underwrite Yet"
+        infoText="First-class withheld states and missing evidence. These are the work items blocking higher conviction."
+        title="Gaps Blocking Conviction"
+      >
+        <div className="space-y-3">
+          {cannotUnderwriteItems.length === 0 ? (
+            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-950/25 p-4">
+              <p className="text-sm font-light leading-relaxed text-emerald-100">
+                No explicit withheld sections or missing critical checklist items are attached to this run.
+              </p>
+            </div>
+          ) : (
+            cannotUnderwriteItems.map((item) => (
+              <div
+                className={`rounded-2xl border p-4 ${
+                  item.tone === "critical"
+                    ? "border-rose-400/30 bg-rose-950/35 text-rose-100"
+                    : item.tone === "withheld"
+                      ? "border-amber-400/30 bg-amber-950/30 text-amber-100"
+                      : "border-zinc-700 bg-zinc-950/70 text-zinc-200"
+                }`}
+                key={item.id}
+              >
+                <p className="text-xs uppercase tracking-[0.22em] opacity-75">
+                  {item.label}
+                </p>
+                <p className="mt-2 text-sm font-light leading-relaxed">{item.detail}</p>
+              </div>
+            ))
+          )}
+        </div>
+      </MemoSectionCard>
+
+      {memo.driverTree ? (
+        <MemoSectionCard
+          eyebrow="Top 3 Variables"
+          infoText="The most important variables from the archetype driver tree. Missing critical variables block conviction upgrades."
+          title="Top 3 Variables That Matter"
+        >
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-violet-400/20 bg-violet-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-violet-200">
+              {archetypeLabel(memo.driverTree.archetype)}
+            </span>
+            {memo.driverTree.blocksConviction ? (
+              <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-rose-200">
+                Conviction blocked
+              </span>
+            ) : null}
+          </div>
+          <div className="grid gap-3 lg:grid-cols-3">
+            {topDrivers.map((driver) => {
+              const statusConfig: Record<DriverMetricStatus, { sym: string; cls: string; label: string }> = {
+                verified: { sym: "\u2713", cls: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200", label: "Verified" },
+                estimated: { sym: "~", cls: "border-amber-400/20 bg-amber-400/10 text-amber-200", label: "Estimated" },
+                inferred: { sym: "?", cls: "border-sky-400/20 bg-sky-400/10 text-sky-200", label: "Inferred" },
+                missing: { sym: "\u2717", cls: "border-rose-400/20 bg-rose-400/10 text-rose-200", label: "Missing" },
+              };
+              const cfg = statusConfig[driver.status];
+              return (
+                <div
+                  className={`rounded-2xl border p-4 ${
+                    driver.status === "missing" && driver.importance === "critical"
+                      ? "border-rose-400/25 bg-rose-950/30"
+                      : "border-zinc-800 bg-zinc-950/70"
+                  }`}
+                  key={driver.name}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold ${cfg.cls}`}>
+                      {cfg.sym}
+                    </span>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] ${cfg.cls}`}>
+                      {cfg.label}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-zinc-100">{driver.name}</p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.16em] text-zinc-500">
+                    {driver.importance}
+                  </p>
+                  <p className="mt-3 text-sm font-light leading-relaxed text-zinc-300">
+                    {driver.value !== null
+                      ? typeof driver.value === "number"
+                        ? driver.value.toFixed(2)
+                        : driver.value
+                      : driver.note ?? "Missing evidence required for higher conviction."}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </MemoSectionCard>
+      ) : null}
+
+      <MemoSectionCard
+        className="border-l-4 border-l-rose-400/50"
+        eyebrow="Change Criteria"
+        infoText="Specific conditions that would change the recommendation, promoted above the longer analyst note."
+        title="What Would Change The View"
+      >
+        {changeCriteria.length === 0 ? (
+          <p className="text-sm font-light leading-relaxed text-zinc-500">
+            No typed kill criteria were generated on this run.
+          </p>
+        ) : (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {changeCriteria.map((criterion, index) => (
+              <div
+                className="rounded-2xl border border-zinc-800 bg-zinc-950/75 p-4"
+                key={`${criterion.condition}-${index}`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs uppercase tracking-[0.18em] text-zinc-300">
+                    Driver{" "}
+                    {criterion.thesisDriverIndex === null
+                      ? "Unlinked"
+                      : criterion.thesisDriverIndex + 1}
+                  </span>
+                  <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-rose-200">
+                    {criterion.newRecommendation}
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-wrap items-start gap-2 text-sm font-light leading-relaxed text-zinc-300">
+                  {modelInferenceBadge()}
+                  <span>{criterion.condition}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </MemoSectionCard>
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
         <MemoSectionCard
           className="border-l-4 border-l-emerald-400/45"
@@ -477,46 +870,68 @@ function renderDepthMemoPanel(memo: InvestmentMemo): JSX.Element {
           infoText="How the current multiple compares with history and peers, and what level of growth or durability the market appears to be assuming."
           title="Priced-In Analysis"
         >
-          {pricedInAnalysis === null ? (
+          {pricedInWithheld !== null ? (
+            <p className="rounded-2xl border border-amber-400/25 bg-amber-950/25 px-4 py-3 text-sm font-light leading-relaxed text-amber-100">
+              {pricedInWithheld}
+            </p>
+          ) : pricedInAnalysis === null ? (
             <p className="text-sm font-light leading-relaxed text-zinc-500">
               This company is currently being treated as a private or diligence-led name, so a public-market priced-in analysis is intentionally not shown.
             </p>
           ) : (
             <div className="space-y-4">
               <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Current multiple</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Current multiple</p>
+                  <EvidenceClassBadge evidenceClass={getAnchorEvidenceClass(pricedInAnalysis.evidenceIds)} />
+                </div>
                 <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                   {pricedInAnalysis.currentMultiple}
                 </p>
               </div>
               <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Historical context</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Historical context</p>
+                  <EvidenceClassBadge evidenceClass={getAnchorEvidenceClass(pricedInAnalysis.evidenceIds)} />
+                </div>
                 <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                   {pricedInAnalysis.vsHistoricalAvg}
                 </p>
               </div>
               <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Peer context</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Peer context</p>
+                  <EvidenceClassBadge evidenceClass={getAnchorEvidenceClass(pricedInAnalysis.evidenceIds)} />
+                </div>
                 <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                   {pricedInAnalysis.vsPeerMedian}
                 </p>
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Implied growth</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Implied growth</p>
+                    {modelInferenceBadge()}
+                  </div>
                   <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                     {pricedInAnalysis.impliedGrowthRate}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">House assumption</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">House assumption</p>
+                    {modelInferenceBadge()}
+                  </div>
                   <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                     {pricedInAnalysis.ourGrowthAssumption}
                   </p>
                 </div>
               </div>
               <div className="rounded-2xl border border-emerald-400/20 bg-emerald-950/25 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-emerald-200">So what?</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs uppercase tracking-[0.22em] text-emerald-200">So what?</p>
+                  {modelInferenceBadge()}
+                </div>
                 <p className="mt-2 text-sm font-light leading-relaxed text-emerald-100">
                   {pricedInAnalysis.conclusion}
                 </p>
@@ -531,7 +946,11 @@ function renderDepthMemoPanel(memo: InvestmentMemo): JSX.Element {
         infoText="Each driver is meant to explain why the case works, what evidence supports it, and what breaks if the driver fails."
         title="Thesis Drivers"
       >
-        {thesisDrivers.length === 0 ? (
+        {privateThesisWithheld !== null ? (
+          <p className="rounded-2xl border border-amber-400/25 bg-amber-950/25 px-4 py-3 text-sm font-light leading-relaxed text-amber-100">
+            {privateThesisWithheld}
+          </p>
+        ) : thesisDrivers.length === 0 ? (
           <p className="text-sm font-light leading-relaxed text-zinc-500">
             The driver-based thesis could not be generated on this run, so the memo is falling back to the legacy narrative view inside the stored evidence.
           </p>
@@ -565,13 +984,24 @@ function renderDepthMemoPanel(memo: InvestmentMemo): JSX.Element {
                 </p>
                 <div className="mt-4 grid gap-4 lg:grid-cols-2">
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Evidence anchor</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Evidence anchor</p>
+                      <EvidenceClassBadge
+                        evidenceClass={
+                          evidenceAnchorById.get(driver.evidenceId)?.evidenceClass ??
+                          "model-inference"
+                        }
+                      />
+                    </div>
                     <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                       {driver.evidenceId}
                     </p>
                   </div>
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">If this fails</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">If this fails</p>
+                      {modelInferenceBadge()}
+                    </div>
                     <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                       {driver.ifFails}
                     </p>
@@ -590,30 +1020,46 @@ function renderDepthMemoPanel(memo: InvestmentMemo): JSX.Element {
           infoText="What has to go right, what outcome that implies, and what multiple would support that upside."
           title="What Has To Go Right"
         >
-          {bullCase == null ? (
+          {scenarioWithheld !== null ? (
+            <p className="rounded-2xl border border-amber-400/25 bg-amber-950/25 px-4 py-3 text-sm font-light leading-relaxed text-amber-100">
+              {scenarioWithheld}
+            </p>
+          ) : bullCase == null ? (
             <p className="text-sm font-light leading-relaxed text-zinc-300">{memo.upsideCase}</p>
           ) : (
             <div className="space-y-4">
-              <p className="text-sm font-light leading-relaxed text-zinc-300">{bullCase.scenario}</p>
+              <div className="flex flex-wrap items-start gap-2 text-sm font-light leading-relaxed text-zinc-300">
+                {modelInferenceBadge()}
+                <span>{bullCase.scenario}</span>
+              </div>
               <MemoStringList
                 emptyText="No explicit upside assumptions were produced."
                 items={bullCase.assumptions}
               />
               <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Quantified outcome</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Quantified outcome</p>
+                  {modelInferenceBadge()}
+                </div>
                 <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                   {bullCase.quantifiedOutcome}
                 </p>
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Implied multiple</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Implied multiple</p>
+                    {modelInferenceBadge()}
+                  </div>
                   <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                     {bullCase.impliedMultiple ?? "Not specified"}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Probability hint</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Probability hint</p>
+                    {modelInferenceBadge()}
+                  </div>
                   <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                     {bullCase.probabilityHint}
                   </p>
@@ -629,30 +1075,46 @@ function renderDepthMemoPanel(memo: InvestmentMemo): JSX.Element {
           infoText="What can break, what downside it implies, and what multiple the market could reset to if the thesis weakens."
           title="What Can Break"
         >
-          {bearCase == null ? (
+          {scenarioWithheld !== null ? (
+            <p className="rounded-2xl border border-amber-400/25 bg-amber-950/25 px-4 py-3 text-sm font-light leading-relaxed text-amber-100">
+              {scenarioWithheld}
+            </p>
+          ) : bearCase == null ? (
             <p className="text-sm font-light leading-relaxed text-zinc-300">{memo.downsideCase}</p>
           ) : (
             <div className="space-y-4">
-              <p className="text-sm font-light leading-relaxed text-zinc-300">{bearCase.scenario}</p>
+              <div className="flex flex-wrap items-start gap-2 text-sm font-light leading-relaxed text-zinc-300">
+                {modelInferenceBadge()}
+                <span>{bearCase.scenario}</span>
+              </div>
               <MemoStringList
                 emptyText="No explicit downside assumptions were produced."
                 items={bearCase.assumptions}
               />
               <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Quantified outcome</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Quantified outcome</p>
+                  {modelInferenceBadge()}
+                </div>
                 <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                   {bearCase.quantifiedOutcome}
                 </p>
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Implied multiple</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Implied multiple</p>
+                    {modelInferenceBadge()}
+                  </div>
                   <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                     {bearCase.impliedMultiple ?? "Not specified"}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Probability hint</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Probability hint</p>
+                    {modelInferenceBadge()}
+                  </div>
                   <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                     {bearCase.probabilityHint}
                   </p>
@@ -687,41 +1149,42 @@ function renderDepthMemoPanel(memo: InvestmentMemo): JSX.Element {
         </MemoSectionCard>
       </div>
 
-      <MemoSectionCard
-        eyebrow="Kill Criteria"
-        infoText="Specific conditions that would change the call rather than just weaken the narrative."
-        title="What Would Change The Call"
-      >
-        {changeCriteria.length === 0 ? (
-          <p className="text-sm font-light leading-relaxed text-zinc-500">
-            No typed kill criteria were generated on this run.
-          </p>
-        ) : (
-          <div className="space-y-4">
-            {changeCriteria.map((criterion, index) => (
-              <div
-                className="rounded-2xl border border-zinc-800 bg-zinc-950/75 p-4"
-                key={`${criterion.condition}-${index}`}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs uppercase tracking-[0.18em] text-zinc-300">
-                    Driver{" "}
-                    {criterion.thesisDriverIndex === null
-                      ? "Unlinked"
-                      : criterion.thesisDriverIndex + 1}
-                  </span>
-                  <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-rose-200">
-                    {criterion.newRecommendation}
-                  </span>
-                </div>
-                <p className="mt-3 text-sm font-light leading-relaxed text-zinc-300">
-                  {criterion.condition}
-                </p>
-              </div>
-            ))}
+      <details className="group rounded-2xl border border-zinc-800 bg-zinc-900/45 p-6">
+        <summary className="fi-interactive flex cursor-pointer list-none flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">
+              Supporting Analyst Note
+            </p>
+            <h4 className="mt-3 text-2xl font-semibold text-zinc-100">
+              Collapsed Memo Prose
+            </h4>
+            <p className="mt-2 text-sm font-light leading-relaxed text-zinc-400">
+              Longer thesis prose is available for audit, but the primary view above is evidence-led.
+            </p>
           </div>
-        )}
-      </MemoSectionCard>
+          <span className="text-xs uppercase tracking-[0.18em] text-zinc-500 transition group-open:rotate-180">
+            v
+          </span>
+        </summary>
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          {[
+            ["Verdict", memo.verdict],
+            ["Thesis", memo.thesis],
+            ["Anti-thesis", memo.antiThesis],
+            ["Business snapshot", memo.businessSnapshot],
+            ["Upside case", memo.upsideCase],
+            ["Downside case", memo.downsideCase],
+          ].map(([label, body]) => (
+            <div
+              className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4"
+              key={label}
+            >
+              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">{label}</p>
+              <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">{body}</p>
+            </div>
+          ))}
+        </div>
+      </details>
 
       <MemoSectionCard
         eyebrow="Peer Benchmarking"
@@ -735,14 +1198,20 @@ function renderDepthMemoPanel(memo: InvestmentMemo): JSX.Element {
         ) : (
           <div className="space-y-4">
             <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Subject vs median</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Subject vs median</p>
+                {modelInferenceBadge()}
+              </div>
               <p className="mt-2 text-sm font-light leading-relaxed text-zinc-300">
                 {comparablesAnchor.subjectVsMedian}
               </p>
             </div>
             {comparablesAnchor.modelingNote ? (
               <div className="rounded-2xl border border-sky-400/20 bg-sky-950/20 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-sky-200">Modeling note</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs uppercase tracking-[0.22em] text-sky-200">Modeling note</p>
+                  {modelInferenceBadge()}
+                </div>
                 <p className="mt-2 text-sm font-light leading-relaxed text-sky-100">
                   {comparablesAnchor.modelingNote}
                 </p>
@@ -762,7 +1231,12 @@ function renderDepthMemoPanel(memo: InvestmentMemo): JSX.Element {
                 <tbody className="divide-y divide-zinc-800">
                   {comparablesAnchor.peerGroup.map((peer) => (
                     <tr className="text-zinc-300" key={`${peer.name}-${peer.ticker ?? "na"}`}>
-                      <td className="px-4 py-3">{peer.name}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{peer.name}</span>
+                          <EvidenceClassBadge evidenceClass={evidenceClassForUiSource(peer.source)} />
+                        </div>
+                      </td>
                       <td className="px-4 py-3">{peer.ticker ?? "-"}</td>
                       <td className="px-4 py-3">{formatOptionalMultiple(peer.peRatio)}</td>
                       <td className="px-4 py-3">{formatOptionalMultiple(peer.evToEbitda)}</td>
@@ -862,9 +1336,9 @@ export function Report({
                 {report.investmentMemo.role}
               </span>
               <span
-                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${MANDATE_FIT_STYLES[report.investmentMemo.mandateFit]}`}
+                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${getMandateFitStyle(report.investmentMemo.mandateFit)}`}
               >
-                {report.investmentMemo.mandateFit}
+                {formatMandateFitLabel(report.investmentMemo.mandateFit)}
               </span>
             </div>
 
@@ -945,7 +1419,7 @@ export function Report({
         />
 
         {useDepthMemoView
-          ? renderDepthMemoPanel(report.investmentMemo)
+          ? renderDepthMemoPanel(report.investmentMemo, report.withheldSections)
           : <InvestmentMemoPanel memo={report.investmentMemo} />}
 
         <details
@@ -1023,6 +1497,9 @@ export function Report({
                             <p className="mt-1 text-xs uppercase tracking-[0.16em] text-zinc-600">
                               {metricCard.sourceLabel}
                             </p>
+                            <div className="mt-2">
+                              <EvidenceClassBadge evidenceClass={metricCard.evidenceClass} />
+                            </div>
                           </div>
                           {metricCard.deltaPercent !== null ? (
                             <span
@@ -1170,8 +1647,15 @@ export function Report({
                   disagreementNotes={report.disagreementNotes}
                   evidenceSignals={report.evidenceSignals}
                 />
-                <ValuationOverviewPanel valuationView={report.valuationView} />
-                <PeerComparisonPanel items={report.peerComparison} />
+                <ValuationOverviewPanel
+                  reconciliationStatus={report.reconciliationStatus}
+                  withheldSections={report.withheldSections}
+                  valuationView={report.valuationView}
+                />
+                <PeerComparisonPanel
+                  items={report.peerComparison}
+                  withheldSections={report.withheldSections}
+                />
                 <ReportDeltaPanel items={report.deltas} />
                 <RecentNewsPanel
                   items={report.newsHighlights}
@@ -1186,7 +1670,10 @@ export function Report({
                 <InsiderActivityPanel items={report.insiderActivity} />
                 <EntityResolutionPanel entityResolution={report.entityResolution} />
                 <ConfidenceBreakdown confidence={report.confidence} />
-                <SectionAuditPanel items={report.sectionAudit} />
+                <SectionAuditPanel
+                  items={report.sectionAudit}
+                  withheldSections={report.withheldSections}
+                />
               </div>
             </div>
           </div>

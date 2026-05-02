@@ -4,6 +4,17 @@ import { runWaterfall } from "@/lib/agents/market-data-agent";
 import { runMemoAgent } from "@/lib/agents/memo-agent";
 import { validateWaterfall } from "@/lib/agents/validation-agent";
 import { computeConfidence } from "@/lib/confidence";
+import { buildDiligenceChecklist } from "@/lib/diligence-checklist";
+import {
+  canRenderPeerPanel,
+  canRenderPricedInAnalysis,
+  canRenderPrivateThesis,
+  canRenderScenarioRange,
+  canRenderStrongRecommendation,
+  makeWithheldSection,
+} from "@/lib/gates";
+import { buildJudgmentLayer } from "@/lib/investment-memo";
+import { scorePeerSet } from "@/lib/peer-engine";
 import {
   assembleMetrics,
   buildNewsSentimentSummary,
@@ -20,8 +31,9 @@ import {
   buildPrivateResearchDevelopments,
   buildRecentDevelopments,
 } from "@/lib/recent-developments";
+import { reconcileSources } from "@/lib/reconciliation";
 import { placeholderAnalysisReport } from "@/lib/types";
-import type { AnalysisReport, ChallengerReport, CoverageGap, DisagreementNote, EntityResolution, EarningsHighlight, EvidenceSignal, FinancialMetric, InsiderActivityItem, NewsHighlight, NewsSentimentSummary, PeerComparisonItem, SectionAuditItem, StreetView, ValidationReport, ValuationView, WaterfallResult } from "@/lib/types";
+import type { AnalysisReport, ChallengerReport, CoverageGap, DisagreementNote, EntityResolution, EarningsHighlight, EvidenceSignal, FinancialMetric, InsiderActivityItem, NewsHighlight, NewsSentimentSummary, PeerComparisonItem, SectionAuditItem, StreetView, ValidationReport, ValuationView, WaterfallResult, WithheldSection } from "@/lib/types";
 
 type StepResult<T> = { data: T; ms: number };
 type EvidenceSignalParams = { waterfallResult: WaterfallResult; metrics: readonly FinancialMetric[]; streetView: StreetView | null; valuationView: ValuationView | null; earningsHighlights: readonly EarningsHighlight[]; newsSentiment: NewsSentimentSummary | null; peerComparison: readonly PeerComparisonItem[]; insiderActivity: readonly InsiderActivityItem[] };
@@ -36,7 +48,7 @@ const EMPTY_MEMO_RESULT: Awaited<ReturnType<typeof runMemoAgent>> = {
   narrative: placeholderAnalysisReport.narrative,
   sections: placeholderAnalysisReport.sections,
 };
-const EMPTY_CHALLENGER_REPORT: Awaited<ReturnType<typeof runChallengerAgent>> = { unstatedAssumptions: [], evidenceGaps: [], counterScenarios: [] };
+const EMPTY_CHALLENGER_REPORT: Awaited<ReturnType<typeof runChallengerAgent>> = { unstatedAssumptions: [], evidenceGaps: [], counterScenarios: [], attacks: [] };
 
 function emptyChallengerReport(): Awaited<ReturnType<typeof runChallengerAgent>> {
   return { ...EMPTY_CHALLENGER_REPORT };
@@ -708,10 +720,70 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
     validationReport,
   );
   const metrics = assembleMetrics(waterfallResult);
+  const reconciliationStatus = reconcileSources(waterfallResult, metrics);
   const analystConsensus = extractConsensus(waterfallResult);
   const streetView = buildStreetView(waterfallResult);
   const valuationView = buildValuationView(waterfallResult);
-  const peerComparison = buildPeerComparison(waterfallResult);
+  const peerRelevanceScores = scorePeerSet(waterfallResult);
+  const rawPeerComparison = buildPeerComparison(waterfallResult);
+  const initialWithheldSections: WithheldSection[] = [];
+
+  if (!canRenderPeerPanel(peerRelevanceScores)) {
+    initialWithheldSections.push(
+      makeWithheldSection(
+        "peer-comparison",
+        "insufficient-peer-relevance",
+        "No valid peer set produced",
+      ),
+    );
+  }
+
+  if (!canRenderPricedInAnalysis(reconciliationStatus, valuationView)) {
+    initialWithheldSections.push(
+      makeWithheldSection(
+        "priced-in-analysis",
+        "unreconciled-valuation-inputs",
+        "Valuation view withheld due to unresolved source mismatch",
+      ),
+    );
+  }
+
+  if (confidence.level === "low") {
+    initialWithheldSections.push(
+      makeWithheldSection(
+        "scenario-range",
+        "weak-assumption-support",
+        "Scenario analysis withheld because key assumptions are unverified",
+      ),
+    );
+  }
+
+  const privateDiligenceChecklist = isPrivateResearchOnly(waterfallResult)
+    ? buildDiligenceChecklist(metrics, waterfallResult, [])
+    : null;
+  if (
+    privateDiligenceChecklist !== null &&
+    !canRenderPrivateThesis(privateDiligenceChecklist)
+  ) {
+    const criticalMissing = privateDiligenceChecklist.items
+      .filter((i) => i.isCritical && i.status === "missing")
+      .map((i) => i.label);
+    initialWithheldSections.push(
+      makeWithheldSection(
+        "private-thesis",
+        "private-diligence-insufficient",
+        criticalMissing.length > 0
+          ? `No real underwriting view until primary diligence closes: ${criticalMissing.join(", ")}`
+          : "No real underwriting view until primary diligence closes the following gaps",
+      ),
+    );
+  }
+
+  const peerComparison = initialWithheldSections.some(
+    (section) => section.section === "peer-comparison",
+  )
+    ? []
+    : rawPeerComparison;
   const earningsHighlights = extractEarningsHighlights(waterfallResult);
   const insiderActivity = extractInsiderActivity(waterfallResult);
   const newsHighlights = extractNewsHighlights(waterfallResult);
@@ -776,31 +848,31 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
     coverageGaps,
     disagreementNotes,
     sectionAudit,
+    withheldSections: initialWithheldSections,
+    reconciliationStatus,
+    peerRelevanceScores,
   } as const;
   const draftStep = await runStep(
     "generateDraftMemo",
     () => runMemoAgent(memoContext),
     EMPTY_MEMO_RESULT,
   );
-  const isBenchmark = draftStep.data.investmentMemo.role === "Reference public comp";
-  const challengeStep = isBenchmark
-    ? { data: emptyChallengerReport(), ms: 0 }
-    : await runStep(
-        "challengeMemo",
-        () =>
-          runChallengerAgent({
-            company: entityResolution.displayName,
-            draftMemo: draftStep.data.investmentMemo,
-            waterfallResult,
-            validationReport,
-            metrics,
-            evidenceSignals,
-            coverageGaps,
-            disagreementNotes,
-            sectionAudit,
-          }),
-        emptyChallengerReport(),
-      );
+  const challengeStep = await runStep(
+    "challengeMemo",
+    () =>
+      runChallengerAgent({
+        company: entityResolution.displayName,
+        draftMemo: draftStep.data.investmentMemo,
+        waterfallResult,
+        validationReport,
+        metrics,
+        evidenceSignals,
+        coverageGaps,
+        disagreementNotes,
+        sectionAudit,
+      }),
+    emptyChallengerReport(),
+  );
   const finalStep = await runStep(
     "generateFinalMemo",
     () => runMemoAgent({ ...memoContext, challengerReport: challengeStep.data }),
@@ -835,7 +907,112 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
     coverageGaps: finalCoverageGaps,
     disagreementNotes: finalDisagreementNotes,
   });
-  const investmentMemo = finalStep.data.investmentMemo;
+  const baseInvestmentMemo = reconciliationStatus.blocksValuationView
+    ? {
+        ...finalStep.data.investmentMemo,
+        pricedInAnalysis: null,
+        valuationCase:
+          "Opinionated valuation framing is withheld because source reconciliation found unresolved valuation input mismatches.",
+      }
+    : finalStep.data.investmentMemo;
+  const scenarioProbeReport: AnalysisReport = {
+    company: entityResolution.displayName,
+    entityResolution,
+    summary: "",
+    investmentMemo: baseInvestmentMemo,
+    narrative: finalStep.data.narrative,
+    sections: finalStep.data.sections,
+    confidence,
+    metrics,
+    analystConsensus,
+    streetView,
+    valuationView,
+    reconciliationStatus,
+    withheldSections: initialWithheldSections,
+    peerRelevanceScores,
+    peerComparison,
+    earningsHighlights,
+    insiderActivity,
+    deltas: [],
+    evidenceSignals,
+    coverageGaps: finalCoverageGaps,
+    disagreementNotes: finalDisagreementNotes,
+    sectionAudit: finalSectionAudit,
+    validationReport,
+    newsHighlights,
+    newsSentiment,
+    recentDevelopments,
+    sources: waterfallResult.activeSources,
+    isAmbiguous: waterfallResult.finnhub?.data.isAmbiguous ?? false,
+    updatedAt: new Date().toISOString(),
+  };
+  const finalWithheldSections = [...initialWithheldSections];
+
+  if (
+    !finalWithheldSections.some((section) => section.section === "scenario-range") &&
+    !canRenderScenarioRange(baseInvestmentMemo.thesisDrivers ?? null, confidence, scenarioProbeReport)
+  ) {
+    finalWithheldSections.push(
+      makeWithheldSection(
+        "scenario-range",
+        "weak-assumption-support",
+        "Scenario analysis withheld because key assumptions are unverified",
+      ),
+    );
+  }
+
+  const strongRecommendationBlocked =
+    !canRenderStrongRecommendation(
+      baseInvestmentMemo.recommendation,
+      confidence,
+      baseInvestmentMemo.logic,
+      finalWithheldSections,
+      {
+        report: scenarioProbeReport,
+        reconciliationStatus,
+        peerRelevanceScores,
+        bullCase: baseInvestmentMemo.bullCase ?? null,
+        diligenceChecklist: baseInvestmentMemo.diligenceChecklist ?? null,
+      },
+    );
+
+  if (strongRecommendationBlocked) {
+    finalWithheldSections.push(
+      makeWithheldSection(
+        "strong-recommendation",
+        "thin-evidence-base",
+        "Strong recommendation withheld because evidence quality does not clear underwriting thresholds",
+      ),
+    );
+  }
+
+  const disciplinedMemoBase = finalWithheldSections.some(
+    (section) => section.section === "scenario-range",
+  )
+    ? {
+        ...baseInvestmentMemo,
+        recommendation: strongRecommendationBlocked ? "watch" as const : baseInvestmentMemo.recommendation,
+        displayRecommendationLabel: strongRecommendationBlocked
+          ? "Watch"
+          : baseInvestmentMemo.displayRecommendationLabel,
+        bullCase: null,
+        bearCase: null,
+      }
+    : {
+        ...baseInvestmentMemo,
+        recommendation: strongRecommendationBlocked ? "watch" as const : baseInvestmentMemo.recommendation,
+        displayRecommendationLabel: strongRecommendationBlocked
+          ? "Watch"
+          : baseInvestmentMemo.displayRecommendationLabel,
+      };
+  const investmentMemo = {
+    ...disciplinedMemoBase,
+    judgmentLayer: buildJudgmentLayer(
+      disciplinedMemoBase,
+      confidence,
+      finalWithheldSections,
+    ),
+  };
   const summary =
     investmentMemo.verdict.trim().length === 0
       ? "No analysis data available."
@@ -853,6 +1030,9 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
     analystConsensus,
     streetView,
     valuationView,
+    reconciliationStatus,
+    withheldSections: finalWithheldSections,
+    peerRelevanceScores,
     peerComparison,
     earningsHighlights,
     insiderActivity,

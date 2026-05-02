@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance Intelligence - System Diagrams</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .diagram-section {
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            padding: 2rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+
+        .diagram-section h2 {
+            color: #333;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 3px solid #667eea;
+            font-size: 1.8rem;
+        }
+
+        .diagram-description {
+            color: #666;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .mermaid {
+            background: #fafafa;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            border: 1px solid #eee;
+        }
+
+        .nav {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 20px;
+            z-index: 100;
+        }
+
+        .nav h3 {
+            color: #333;
+            margin-bottom: 1rem;
+        }
+
+        .nav a {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            text-decoration: none;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+            transition: background 0.3s;
+            font-size: 0.9rem;
+        }
+
+        .nav a:hover {
+            background: #764ba2;
+        }
+
+        footer {
+            text-align: center;
+            color: #999;
+            padding: 2rem;
+            font-size: 0.9rem;
+            margin-top: 3rem;
+        }
+
+        @media (max-width: 768px) {
+            header {
+                padding: 1rem;
+            }
+
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            .diagram-section {
+                padding: 1rem;
+            }
+
+            .diagram-section h2 {
+                font-size: 1.3rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 Finance Intelligence System</h1>
+            <p class="subtitle">Complete Architecture & Agent Flow Diagrams</p>
+        </header>
+
+        <div class="nav">
+            <h3>📊 Jump to Diagram:</h3>
+            <a href="#diagram1">Complete Flow</a>
+            <a href="#diagram2">Agent Orchestration</a>
+            <a href="#diagram3">Data Flow Architecture</a>
+            <a href="#diagram4">Agent Responsibilities</a>
+        </div>
+
+        <!-- Diagram 1 -->
+        <div class="diagram-section" id="diagram1">
+            <h2>1️⃣ Complete Project Flow</h2>
+            <p class="diagram-description">
+                The two main workflows: <strong>Companies</strong> (company analysis) and <strong>Themes</strong> (investment theme exploration).
+                User queries are routed to the appropriate API endpoint and processed through their respective agent pipelines.
+            </p>
+            <div class="mermaid">
+flowchart TD
+    Start["User Enters Query"] --> Choice{"Search Type?"}
+
+    Choice -->|Company Name| CompanyPath["COMPANIES WORKFLOW"]
+    Choice -->|Investment Theme| ThemePath["THEMES WORKFLOW"]
+
+    CompanyPath --> CP1["API: /api/analyze"]
+    CP1 --> CP2["Market Data Agent<br/>runWaterfall()"]
+
+    CP2 --> CP2a["Parallel Fetch:<br/>- Finnhub<br/>- FMP<br/>- SEC EDGAR<br/>- Companies House<br/>- GLEIF<br/>- Exa Deep<br/>- Claude Fallback"]
+
+    CP2a --> CP3["Entity Agent<br/>buildEntityResolution()"]
+    CP3 --> CP3a["Resolve to Canonical Name<br/>+ Primary Source<br/>+ All Identifiers"]
+
+    CP3a --> CP4["Validation Agent<br/>validateWaterfall()"]
+    CP4 --> CP4a["Assess Data Quality<br/>Confidence Rating:<br/>HIGH/MEDIUM/LOW"]
+
+    CP4a --> CP5["Assemble Reports"]
+    CP5 --> CP5a["Extract Metrics<br/>Street View<br/>Valuation View<br/>Analyst Consensus<br/>Peer Comparison<br/>Earnings/Insider Activity"]
+
+    CP5a --> CP6["Evidence Signals<br/>Coverage Gaps<br/>Disagreement Notes"]
+
+    CP6 --> CP7["Memo Agent<br/>runMemoAgent<br/>Draft Pass"]
+    CP7 --> CP7a["Generate Initial<br/>Investment Memo"]
+
+    CP7a --> CP8["Challenger Agent<br/>runChallengerAgent()"]
+    CP8 --> CP8a["Review Draft<br/>Identify:<br/>- Unstated Assumptions<br/>- Evidence Gaps<br/>- Counter Scenarios"]
+
+    CP8a --> CP9["Memo Agent<br/>Final Pass"]
+    CP9 --> CP9a["Generate Final<br/>Investment Memo<br/>Narrative + Sections"]
+
+    CP9a --> CP10["Return AnalysisReport<br/>Display on Dashboard"]
+
+    ThemePath --> TP1["API: /api/themes"]
+    TP1 --> TP2["Theme Agent<br/>exploreTheme()"]
+
+    TP2 --> TP2a["Initialize Exa Deep Client"]
+    TP2a --> TP2b["Web Search for Theme"]
+    TP2b --> TP2c["Extract Top Results"]
+
+    TP2c --> TP3["Claude API<br/>Structured Extraction"]
+    TP3 --> TP3a["Analyze Results<br/>with JSON Schema"]
+
+    TP3a --> TP4["Extract Theme Metadata"]
+    TP4 --> TP4a["Theme Name<br/>Description<br/>Key Drivers<br/>Headwinds<br/>Related Themes<br/>Companies List"]
+
+    TP4a --> TP5["Normalize Companies"]
+    TP5 --> TP5a["Sort by Exposure Score<br/>Slice Top 10"]
+
+    TP5a --> TP6["Return ThemeResult<br/>Display Themes Panel"]
+
+    CP10 --> End["🎯 User Views Report"]
+    TP6 --> End
+            </div>
+        </div>
+
+        <!-- Diagram 2 -->
+        <div class="diagram-section" id="diagram2">
+            <h2>2️⃣ Agent Orchestration Sequence</h2>
+            <p class="diagram-description">
+                How the <strong>Orchestrator</strong> coordinates all 5 company agents in sequence. Each agent runs in order,
+                consuming outputs from previous stages to build the complete analyst report.
+            </p>
+            <div class="mermaid">
+flowchart TD
+    A["ORCHESTRATOR<br/>runAnalysis()"] --> B["1️⃣ Market Data Agent"]
+
+    B --> B1["Run Waterfall:<br/>Finnhub, FMP, SEC EDGAR,<br/>Companies House, GLEIF,<br/>Exa Deep, Claude Fallback"]
+    B1 --> B2["Returns: WaterfallResult<br/>with all source data"]
+
+    B2 --> C["2️⃣ Entity Agent"]
+    C --> C1["Resolve Company<br/>prioritize by source<br/>SEC > Finnhub > CH > GLEIF > Exa"]
+    C1 --> C2["Returns: EntityResolution<br/>Canonical name + Primary source"]
+
+    C2 --> D["3️⃣ Validation Agent"]
+    D --> D1["Assessment of<br/>Data Quality<br/>Coverage Label"]
+    D1 --> D2["Returns: ValidationReport<br/>Coverage + Tensions + Gaps"]
+
+    B2 --> E["4️⃣ Report Assembly<br/>Non-agent functions"]
+    E --> E1["Extract Metrics<br/>Street View<br/>Valuation View<br/>Earnings Highlights<br/>Insider Activity<br/>News Sentiment<br/>Peer Comparison<br/>Recent Developments"]
+    E1 --> E2["Build Signals<br/>Coverage Gaps<br/>Disagreement Notes<br/>Section Audit"]
+
+    D2 --> F["5️⃣ Memo Agent<br/>DRAFT PASS"]
+    E2 --> F
+    C2 --> F
+
+    F --> F1["Investment Memo<br/>Narrative<br/>Investment Thesis"]
+    F1 --> G["6️⃣ Challenger Agent"]
+
+    G --> G1["Review Draft Memo<br/>Stress test assumptions<br/>Identify gaps"]
+    G1 --> G2["Returns: ChallengerReport<br/>Unstated Assumptions<br/>Evidence Gaps<br/>Counter Scenarios"]
+
+    G2 --> H["7️⃣ Memo Agent<br/>FINAL PASS"]
+
+    H --> H1["Incorporate Challenger<br/>Generate Final<br/>Investment Memo"]
+
+    H1 --> I["Return AnalysisReport<br/>Complete Package:<br/>- Entity Resolution<br/>- Metrics<br/>- Memo<br/>- Signals<br/>- Coverage Gaps<br/>- Confidence"]
+
+    I --> J["📊 Display on Dashboard"]
+
+    style A fill:#4A90E2
+    style B fill:#50C878
+    style C fill:#50C878
+    style D fill:#50C878
+    style F fill:#FF6B6B
+    style G fill:#FF6B6B
+    style H fill:#FF6B6B
+    style E fill:#FFB84D
+            </div>
+        </div>
+
+        <!-- Diagram 3 -->
+        <div class="diagram-section" id="diagram3">
+            <h2>3️⃣ System Architecture: Data Flow</h2>
+            <p class="diagram-description">
+                Complete system architecture showing 7 data sources, 6 agents, report components,
+                and how data flows from sources through agents to final output.
+            </p>
+            <div class="mermaid">
+flowchart LR
+    subgraph DATA_SOURCES["🔌 DATA SOURCES"]
+        D1["Finnhub"]
+        D2["FMP"]
+        D3["SEC EDGAR"]
+        D4["Companies House"]
+        D5["GLEIF"]
+        D6["Exa Deep"]
+        D7["Claude Fallback"]
+    end
+
+    subgraph AGENTS_COMPANIES["🤖 COMPANY AGENTS"]
+        A1["Market Data Agent<br/>️runWaterfall"]
+        A2["Entity Agent<br/>buildEntityResolution"]
+        A3["Validation Agent<br/>validateWaterfall"]
+        A4["Memo Agent<br/>runMemoAgent"]
+        A5["Challenger Agent<br/>runChallengerAgent"]
+    end
+
+    subgraph AGENTS_THEMES["🤖 THEME AGENTS"]
+        B1["Theme Agent<br/>exploreTheme"]
+    end
+
+    subgraph REPORT_COMPONENTS["📋 REPORT COMPONENTS"]
+        R1["Financial Metrics"]
+        R2["Street View"]
+        R3["Valuation View"]
+        R4["Peer Comparison"]
+        R5["Analyst Consensus"]
+        R6["Earnings/Insider"]
+        R7["News Sentiment"]
+        R8["Evidence Signals"]
+        R9["Coverage Gaps"]
+        R10["Section Audit"]
+    end
+
+    subgraph OUTPUT["📊 OUTPUT"]
+        O1["AnalysisReport"]
+        O2["ThemeResult"]
+        O3["Dashboard UI"]
+    end
+
+    D1 --> A1
+    D2 --> A1
+    D3 --> A1
+    D4 --> A1
+    D5 --> A1
+    D6 --> A1
+    D7 --> A1
+
+    A1 -->|WaterfallResult| A2
+    A1 -->|WaterfallResult| A3
+    A1 -->|WaterfallResult| R1
+    A1 -->|WaterfallResult| R2
+    A1 -->|WaterfallResult| R3
+    A1 -->|WaterfallResult| R4
+    A1 -->|WaterfallResult| R5
+    A1 -->|WaterfallResult| R6
+    A1 -->|WaterfallResult| R7
+    A1 -->|WaterfallResult| R8
+    A1 -->|WaterfallResult| R9
+    A1 -->|WaterfallResult| R10
+
+    A2 -->|EntityResolution| A4
+    A3 -->|ValidationReport| A4
+    R1 --> A4
+    R2 --> A4
+    R3 --> A4
+
+    A4 -->|Draft Memo| A5
+    A5 -->|Challenger Report| A4
+    A4 -->|Final Memo| O1
+
+    A2 --> O1
+    A1 --> O1
+    A3 --> O1
+
+    B1 --> O2
+
+    O1 --> O3
+    O2 --> O3
+
+    style AGENTS_COMPANIES fill:#E3F2FD
+    style AGENTS_THEMES fill:#F3E5F5
+    style DATA_SOURCES fill:#E8F5E9
+    style REPORT_COMPONENTS fill:#FFF3E0
+    style OUTPUT fill:#FCE4EC
+            </div>
+        </div>
+
+        <!-- Diagram 4 -->
+        <div class="diagram-section" id="diagram4">
+            <h2>4️⃣ Agent Responsibilities</h2>
+            <p class="diagram-description">
+                Detailed breakdown of each of the 7 agents: their responsibilities, inputs, outputs,
+                and role in the system.
+            </p>
+            <div class="mermaid">
+graph TD
+    A["7 AGENTS"]
+
+    A --> A1["1️⃣ Market Data Agent<br/>market-data-agent.ts<br/>━━━━━━<br/>Orchestrates 7-source waterfall<br/>Fetches in parallel<br/>Skips Finnhub/FMP for private co."]
+
+    A --> A2["2️⃣ Entity Agent<br/>entity-agent.ts<br/>━━━━━━<br/>Resolves to canonical name<br/>Extracts all identifiers<br/>Prioritizes primary source"]
+
+    A --> A3["3️⃣ Validation Agent<br/>validation-agent.ts<br/>━━━━━━<br/>Assesses data quality<br/>Flags gaps and tensions<br/>Calculates coverage label"]
+
+    A --> A4["4️⃣ Memo Agent<br/>memo-agent.ts<br/>━━━━━━<br/>Generates investment memo<br/>Runs TWICE draft + final<br/>Uses Claude API synthesis"]
+
+    A --> A5["5️⃣ Challenger Agent<br/>challenger-agent.ts<br/>━━━━━━<br/>Stress tests draft memo<br/>Identifies assumptions<br/>Finds evidence gaps"]
+
+    A --> A6["6️⃣ Theme Agent<br/>theme-agent.ts<br/>━━━━━━<br/>Searches for themes<br/>Finds related companies<br/>Extracts exposure scores"]
+
+    A --> A7["7️⃣ Entity Disambiguation<br/>Internal functions<br/>━━━━━━<br/>Resolves ambiguities<br/>Handles multi-exchange<br/>Selects primary ticker"]
+
+    style A1 fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
+    style A2 fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
+    style A3 fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
+    style A4 fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px
+    style A5 fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px
+    style A6 fill:#E8F5E9,stroke:#388E3C,stroke-width:2px
+    style A7 fill:#FFF3E0,stroke:#F57C00,stroke-width:2px
+            </div>
+        </div>
+
+        <footer>
+            <p>Generated for Finance Intelligence System | April 2026</p>
+            <p>📁 Diagram files saved to: <code>tasks/diagrams/</code></p>
+        </footer>
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+    </script>
+</body>
+</html>

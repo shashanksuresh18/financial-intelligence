@@ -1,19 +1,27 @@
+import { classifyArchetype, buildDriverTree } from "@/lib/driver-trees";
+import { buildDiligenceChecklist, diligenceBlockedThesisText } from "@/lib/diligence-checklist";
 import type {
   AnalysisReport,
   ConfidenceLevel,
   CoverageGap,
   CoverageProfile,
   DataSource,
+  DerivedInference,
+  DiligenceChecklist,
+  DriverTree,
   EarningsHighlight,
   EntityResolution,
   EvidenceSignal,
+  FactLayer,
   FinancialMetric,
+  InferenceLayer,
   InvestmentMemo,
   InvestmentMandateFit,
   InvestmentRecommendation,
   InvestmentRole,
   InvestmentRisk,
   InvestmentRiskCategory,
+  JudgmentLayer,
   NewsHighlight,
   RecommendationGapLoad,
   RecommendationLogic,
@@ -24,6 +32,7 @@ import type {
   ValidationReport,
   ValuationView,
   WaterfallResult,
+  WithheldSection,
 } from "@/lib/types";
 
 type InvestmentMemoInput = {
@@ -215,6 +224,142 @@ function formatCurrency(value: number | null, maximumFractionDigits = 2): string
 
 function formatMultiple(value: number | null): string {
   return value === null ? "n/a" : `${value.toFixed(1)}x`;
+}
+
+function factIdsMatching(facts: FactLayer, patterns: readonly string[]): readonly string[] {
+  const normalized = patterns.map((pattern) => pattern.toLowerCase());
+
+  return facts.items
+    .filter((fact) =>
+      normalized.some((pattern) => fact.claim.toLowerCase().includes(pattern)),
+    )
+    .map((fact) => fact.evidenceId)
+    .filter((id): id is string => id !== null);
+}
+
+function pushInference(
+  items: DerivedInference[],
+  seen: Set<string>,
+  inference: DerivedInference,
+): void {
+  if (seen.has(inference.claim)) {
+    return;
+  }
+
+  seen.add(inference.claim);
+  items.push(inference);
+}
+
+export function buildInferenceLayer(
+  facts: FactLayer,
+  metrics: readonly FinancialMetric[],
+  valuationView: ValuationView | null,
+): InferenceLayer {
+  const items: DerivedInference[] = [];
+  const seen = new Set<string>();
+  const revenueGrowth = findMetricNumber(metrics, "Revenue Growth");
+  const grossMargin = findMetricNumber(metrics, "Gross Margin");
+  const freeCashFlowMargin = findMetricNumber(metrics, "Free Cash Flow Margin");
+
+  if (revenueGrowth !== null) {
+    pushInference(items, seen, {
+      claim:
+        revenueGrowth >= 0
+          ? `Revenue growth is positive at ${formatPercent(revenueGrowth)}, so the operating setup has at least one measurable growth anchor.`
+          : `Revenue growth is negative at ${formatPercent(revenueGrowth)}, so the current case needs margin or valuation support to offset contraction.`,
+      derivedFrom: factIdsMatching(facts, ["Revenue Growth"]),
+      mechanismType: "trend",
+      quantified: true,
+    });
+  }
+
+  if (grossMargin !== null && freeCashFlowMargin !== null) {
+    pushInference(items, seen, {
+      claim: `Gross margin of ${formatPercent(grossMargin)} and free cash flow margin of ${formatPercent(freeCashFlowMargin)} show how much accounting margin converts into cash margin.`,
+      derivedFrom: factIdsMatching(facts, ["Gross Margin", "Free Cash Flow Margin"]),
+      mechanismType: "ratio",
+      quantified: true,
+    });
+  }
+
+  for (const metric of valuationView?.metrics ?? []) {
+    if (metric.current !== null && metric.forward !== null) {
+      const direction = metric.forward < metric.current ? "compresses" : "expands";
+
+      pushInference(items, seen, {
+        claim: `${metric.label} ${direction} from ${formatMultiple(metric.current)} current to ${formatMultiple(metric.forward)} forward, making the valuation view dependent on forecast delivery.`,
+        derivedFrom: factIdsMatching(facts, [
+          `${metric.label} current`,
+          `${metric.label} forward`,
+        ]),
+        mechanismType: "trend",
+        quantified: true,
+      });
+    }
+
+    if (
+      metric.current !== null &&
+      metric.historicalLow !== null &&
+      metric.historicalHigh !== null
+    ) {
+      const midpoint = (metric.historicalLow + metric.historicalHigh) / 2;
+      const relative =
+        Math.abs(metric.current - midpoint) < 0.1
+          ? "near"
+          : metric.current > midpoint
+            ? "above"
+            : "below";
+
+      pushInference(items, seen, {
+        claim: `${metric.label} at ${formatMultiple(metric.current)} sits ${relative} the historical midpoint of ${formatMultiple(midpoint)}.`,
+        derivedFrom: factIdsMatching(facts, [`${metric.label} current`]),
+        mechanismType: "comparison",
+        quantified: true,
+      });
+    }
+  }
+
+  return {
+    items: items.filter((item) => item.derivedFrom.length > 0).slice(0, 8),
+  };
+}
+
+export function buildJudgmentLayer(
+  memo: InvestmentMemo,
+  confidence: InvestmentMemoInput["confidence"],
+  withheldSections: readonly WithheldSection[],
+): JudgmentLayer {
+  const blockReasons: string[] = [];
+  const hasPrimaryFiling =
+    (memo.factLayer?.primaryFilingCount ?? 0) > 0 ||
+    (memo.evidenceAnchors ?? []).some(
+      (anchor) => anchor.evidenceClass === "primary-filing",
+    );
+
+  if (confidence.level === "low" && !hasPrimaryFiling) {
+    blockReasons.push(
+      "Conviction is blocked because data confidence is low and no primary filing evidence is present.",
+    );
+  }
+
+  if (withheldSections.some((section) => section.section === "strong-recommendation")) {
+    blockReasons.push(
+      "A strong recommendation is withheld because the evidence base does not clear underwriting thresholds.",
+    );
+  }
+
+  if (memo.diligenceChecklist?.blockThesis === true) {
+    blockReasons.push(
+      "Private-company thesis generation is blocked until critical diligence checklist items are resolved.",
+    );
+  }
+
+  return {
+    recommendation: memo.recommendation ?? null,
+    conviction: memo.conviction ?? null,
+    blocked: blockReasons.length > 0,
+    blockReasons,
+  };
 }
 
 function parseScaledNumberText(value: string | null): number | null {
@@ -857,6 +1002,24 @@ function deriveRecommendation(
   const positiveSignals = input.evidenceSignals.filter((signal) => signal.tone === "positive").length;
   const negativeSignals = input.evidenceSignals.filter((signal) => signal.tone === "negative").length;
   const privateCompanyLike = isPrivateCompanyLike(input);
+  const hasPrimaryOrFmp =
+    input.sources.includes("sec-edgar") ||
+    input.sources.includes("fmp") ||
+    (input.waterfallResult.secEdgar !== null &&
+      input.waterfallResult.secEdgar.data.xbrlFacts !== null);
+  const hasHighSeverityTension = input.validationReport.tensions.some(
+    (tension) => tension.severity === "high",
+  );
+  const consensusOnlyUpside =
+    logic.streetSignals === "strong" &&
+    logic.financialDepth === "thin" &&
+    logic.valuationSupport !== "strong";
+  const buyEligible =
+    input.confidence.level !== "low" &&
+    logic.financialDepth !== "thin" &&
+    hasPrimaryOrFmp &&
+    !hasHighSeverityTension &&
+    !consensusOnlyUpside;
 
   let score = 0;
   score += logic.entityCertainty === "strong" ? 2 : logic.entityCertainty === "mixed" ? 0 : -4;
@@ -938,6 +1101,7 @@ function deriveRecommendation(
   if (
     score >= 7 &&
     mandateFit === "Aligned mandate" &&
+    buyEligible &&
     logic.valuationSupport !== "weak" &&
     logic.dataGaps === "contained"
   ) {
@@ -2042,6 +2206,10 @@ function buildVerdict(
       return `${displayRecommendationLabel}: ${company} is not yet underwriteable because ${limiter}${anchor === null ? "" : `, despite ${anchor}`}.`;
     }
 
+    if (displayRecommendationLabel === "Primary diligence required") {
+      return `${company} merits deeper work because ${support}${anchorClause}, but ${limiter}.`;
+    }
+
     return `${displayRecommendationLabel}: ${company} merits deeper work because ${support}${anchorClause}, but ${limiter}.`;
   }
 
@@ -2076,7 +2244,7 @@ export function buildInvestmentMemo(input: InvestmentMemoInput): InvestmentMemo 
   const role = deriveRole(input, recommendation, preliminaryFit, logicBase);
   const mandateFit =
     role === "Reference public comp"
-      ? "n/a â€” benchmark territory"
+      ? "Benchmark territory"
       : preliminaryFit;
   const displayRecommendationLabel = buildDisplayRecommendationLabel(
     input,
@@ -2092,6 +2260,60 @@ export function buildInvestmentMemo(input: InvestmentMemoInput): InvestmentMemo 
     logic,
   );
 
+  // --- Driver tree: classify archetype and build driver tree ---
+  const archetype = classifyArchetype(input.waterfallResult, input.metrics);
+  const driverTree: DriverTree = buildDriverTree(archetype, input.metrics, []);
+
+  const baseKeyRisks = buildKeyRisks(input);
+  const driverTreeRisks: readonly InvestmentRisk[] = driverTree.criticalMissing.map(
+    (driverName, index) => ({
+      title: `Missing critical driver: ${driverName}`,
+      detail: `The ${driverName} metric is required for the ${archetype} archetype but is not available in the current evidence set. Conviction cannot be upgraded until this gap is closed.`,
+      category: "data-quality" as InvestmentRiskCategory,
+      rank: baseKeyRisks.length + index + 1,
+    }),
+  );
+  // --- Diligence checklist for private companies ---
+  const isPrivate =
+    input.waterfallResult.finnhub === null &&
+    input.waterfallResult.fmp === null &&
+    input.waterfallResult.secEdgar === null &&
+    (input.waterfallResult.exaDeep !== null ||
+     input.waterfallResult.companiesHouse !== null ||
+     input.waterfallResult.claudeFallback !== null);
+
+  const diligenceChecklist: DiligenceChecklist | null = isPrivate
+    ? buildDiligenceChecklist(input.metrics, input.waterfallResult, [])
+    : null;
+
+  const thesisText = diligenceChecklist !== null && diligenceChecklist.blockThesis
+    ? diligenceBlockedThesisText(diligenceChecklist)
+    : buildThesis(recommendation, input, mandateFit);
+
+  const verdictText = diligenceChecklist !== null && !diligenceChecklist.underwritingReady
+    ? `Primary diligence required — ${buildVerdict(
+        input,
+        input.company,
+        displayRecommendationLabel,
+        recommendation,
+        mandateFit,
+        role,
+        logic,
+        supportingReasons,
+        confidenceLimitingReasons,
+      )}`
+    : buildVerdict(
+        input,
+        input.company,
+        displayRecommendationLabel,
+        recommendation,
+        mandateFit,
+        role,
+        logic,
+        supportingReasons,
+        confidenceLimitingReasons,
+      );
+
   return {
     recommendation,
     displayRecommendationLabel,
@@ -2100,26 +2322,16 @@ export function buildInvestmentMemo(input: InvestmentMemoInput): InvestmentMemo 
     mandateFit,
     role,
     coverageProfile,
-    verdict: buildVerdict(
-      input,
-      input.company,
-      displayRecommendationLabel,
-      recommendation,
-      mandateFit,
-      role,
-      logic,
-      supportingReasons,
-      confidenceLimitingReasons,
-    ),
+    verdict: verdictText,
     whyNow: buildWhyNow(input, logic),
     keyDisqualifier: buildKeyDisqualifier(input, recommendation, logic, mandateFit),
-    thesis: buildThesis(recommendation, input, mandateFit),
+    thesis: thesisText,
     antiThesis: buildAntiThesis(recommendation, input, mandateFit),
     businessSnapshot: buildBusinessSnapshot(input, coverageProfile, mandateFit),
     valuationCase: buildValuationCase(input, logic, mandateFit),
     upsideCase: buildUpsideCase(input, logic),
     downsideCase: buildDownsideCase(input, logic),
-    keyRisks: buildKeyRisks(input),
+    keyRisks: [...baseKeyRisks, ...driverTreeRisks],
     catalystsToMonitor: buildCatalystsToMonitor(input, logic),
     whatImprovesConfidence: buildWhatImprovesConfidence(input, logic),
     whatReducesConfidence: buildWhatReducesConfidence(input, logic),
@@ -2127,5 +2339,7 @@ export function buildInvestmentMemo(input: InvestmentMemoInput): InvestmentMemo 
     reasonedInference: buildReasonedInference(input, recommendation, coverageProfile, logic, mandateFit),
     unknowns: buildUnknowns(input),
     logic,
+    driverTree,
+    diligenceChecklist,
   };
 }

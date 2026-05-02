@@ -1,0 +1,24 @@
+graph TD
+    A["7 AGENTS IN THE SYSTEM"]
+
+    A --> A1["1️⃣ Market Data Agent<br/>src/lib/agents/market-data-agent.ts<br/><br/>Responsibility:<br/>- Run waterfall through all data sources<br/>- Parallel fetch from 7 sources<br/>- Skip Finnhub/FMP for known private companies<br/>- Return unified WaterfallResult<br/><br/>Input: Company query<br/>Output: WaterfallResult"]
+
+    A --> A2["2️⃣ Entity Agent<br/>src/lib/agents/entity-agent.ts<br/><br/>Responsibility:<br/>- Resolve company to canonical name<br/>- Prioritize primary source<br/>- Match company name across sources<br/>- Extract all identifiers<br/><br/>Input: Query + WaterfallResult<br/>Output: EntityResolution"]
+
+    A --> A3["3️⃣ Validation Agent<br/>src/lib/agents/validation-agent.ts<br/><br/>Responsibility:<br/>- Assess data quality<br/>- Calculate coverage label<br/>- Identify data tensions<br/>- Flag coverage gaps<br/>- Cross-check sources<br/><br/>Input: WaterfallResult<br/>Output: ValidationReport"]
+
+    A --> A4["4️⃣ Memo Agent<br/>src/lib/agents/memo-agent.ts<br/><br/>Responsibility:<br/>- Generate investment memo<br/>- Build narrative sections<br/>- Run TWICE: draft + final<br/>- Incorporate challenger feedback<br/>- Synthesize via Claude API<br/><br/>Input: Full context + optional ChallengerReport<br/>Output: Memo + Narrative + Sections"]
+
+    A --> A5["5️⃣ Challenger Agent<br/>src/lib/agents/challenger-agent.ts<br/><br/>Responsibility:<br/>- Stress test draft memo<br/>- Find unstated assumptions<br/>- Identify evidence gaps<br/>- Generate counter scenarios<br/>- Review with Claude API<br/><br/>Input: Draft Memo + WaterfallResult<br/>Output: ChallengerReport"]
+
+    A --> A6["6️⃣ Theme Agent<br/>src/lib/agents/theme-agent.ts<br/><br/>Responsibility:<br/>- Search for investment theme<br/>- Find related companies<br/>- Extract exposure scores<br/>- Identify key drivers/headwinds<br/>- Use Exa Deep + Claude<br/><br/>Input: Theme query<br/>Output: ThemeResult"]
+
+    A --> A7["7️⃣ Entity Disambiguation Agent<br/>INTERNAL FUNCTIONS<br/><br/>Responsibility:<br/>- Resolve ambiguous company matches<br/>- Handle multi-exchange listings<br/>- Distinguish similar names<br/>- Select primary ticker<br/><br/>Input: Entity lookup results<br/>Output: Ranked candidates"]
+
+    style A1 fill:#E3F2FD,stroke:#1976D2
+    style A2 fill:#E3F2FD,stroke:#1976D2
+    style A3 fill:#E3F2FD,stroke:#1976D2
+    style A4 fill:#F3E5F5,stroke:#7B1FA2
+    style A5 fill:#F3E5F5,stroke:#7B1FA2
+    style A6 fill:#E8F5E9,stroke:#388E3C
+    style A7 fill:#FFF3E0,stroke:#F57C00

@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
 
+import { archetypeLabel } from "@/lib/driver-trees";
 import type {
   ConfidenceLevel,
+  DiligenceCheckStatus,
+  DriverMetricStatus,
   InvestmentMemo,
   InvestmentMandateFit,
   InvestmentRecommendation,
@@ -48,8 +51,20 @@ const MANDATE_FIT_STYLES: Record<InvestmentMandateFit, string> = {
   "Aligned mandate": "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
   "Borderline mandate fit": "border-amber-400/20 bg-amber-400/10 text-amber-200",
   "Out of mandate": "border-sky-400/20 bg-sky-400/10 text-sky-200",
-  "n/a â€” benchmark territory": "border-sky-400/20 bg-sky-400/10 text-sky-200",
+  "Benchmark territory": "border-sky-400/20 bg-sky-400/10 text-sky-200",
 };
+
+function formatMandateFitLabel(value: InvestmentMandateFit): string {
+  return value.toLowerCase().includes("benchmark territory")
+    ? "Benchmark territory"
+    : value;
+}
+
+function getMandateFitStyle(value: InvestmentMandateFit): string {
+  const normalized = formatMandateFitLabel(value) as InvestmentMandateFit;
+
+  return MANDATE_FIT_STYLES[normalized] ?? MANDATE_FIT_STYLES["Borderline mandate fit"];
+}
 
 const STRESS_TEST_SEVERITY_STYLES: Record<ValidationSeverity, string> = {
   high: "bg-rose-400/20 text-rose-200",
@@ -162,6 +177,157 @@ function StressTestGroup({
   );
 }
 
+const DRIVER_STATUS_BADGES: Record<DriverMetricStatus, { readonly symbol: string; readonly style: string; readonly label: string }> = {
+  verified: { symbol: "\u2713", style: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200", label: "Verified" },
+  estimated: { symbol: "~", style: "border-amber-400/20 bg-amber-400/10 text-amber-200", label: "Estimated" },
+  inferred: { symbol: "?", style: "border-sky-400/20 bg-sky-400/10 text-sky-200", label: "Inferred" },
+  missing: { symbol: "\u2717", style: "border-rose-400/20 bg-rose-400/10 text-rose-200", label: "Missing" },
+};
+
+function DriverTreePanel({ memo }: { readonly memo: InvestmentMemo }) {
+  const tree = memo.driverTree;
+  if (tree === null || tree === undefined) return null;
+
+  return (
+    <SectionCard
+      eyebrow="Archetype"
+      infoText="The company has been classified into an archetype. Each archetype defines specific metrics that are critical, important, or supplementary for underwriting."
+      title="Key Value Drivers"
+    >
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <span className="rounded-full border border-violet-400/20 bg-violet-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-violet-200">
+          {archetypeLabel(tree.archetype)}
+        </span>
+        {tree.blocksConviction ? (
+          <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-rose-200">
+            Conviction blocked
+          </span>
+        ) : null}
+      </div>
+
+      <div className="space-y-2">
+        {tree.drivers.map((driver) => {
+          const badge = DRIVER_STATUS_BADGES[driver.status];
+          return (
+            <div
+              className={`flex items-center justify-between rounded-2xl border border-zinc-800 px-4 py-3 ${
+                driver.status === "missing" && driver.importance === "critical"
+                  ? "bg-rose-950/30"
+                  : "bg-zinc-950/70"
+              }`}
+              key={driver.name}
+            >
+              <div className="flex items-center gap-3">
+                <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold ${badge.style}`}>
+                  {badge.symbol}
+                </span>
+                <span className="text-sm font-medium text-zinc-100">{driver.name}</span>
+                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-zinc-400">
+                  {driver.importance}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                {driver.value !== null ? (
+                  <span className="text-sm font-light text-zinc-300">
+                    {typeof driver.value === "number" ? driver.value.toFixed(2) : driver.value}
+                  </span>
+                ) : driver.note ? (
+                  <span className="text-xs font-light italic text-rose-300">{driver.note}</span>
+                ) : null}
+                <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] ${badge.style}`}>
+                  {badge.label}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {tree.criticalMissing.length > 0 ? (
+        <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-950/25 p-4">
+          <p className="text-xs uppercase tracking-[0.22em] text-rose-200">Critical gaps</p>
+          <p className="mt-2 text-sm font-light leading-relaxed text-rose-100">
+            {tree.criticalMissing.join(", ")} — required before conviction can be upgraded.
+          </p>
+        </div>
+      ) : null}
+    </SectionCard>
+  );
+}
+
+const DILIGENCE_STATUS_BADGES: Record<DiligenceCheckStatus, { readonly symbol: string; readonly style: string; readonly label: string }> = {
+  verified: { symbol: "\u2713", style: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200", label: "Verified" },
+  estimated: { symbol: "~", style: "border-amber-400/20 bg-amber-400/10 text-amber-200", label: "Estimated" },
+  missing: { symbol: "\u2717", style: "border-rose-400/20 bg-rose-400/10 text-rose-200", label: "Missing" },
+};
+
+function DiligenceChecklistPanel({ memo }: { readonly memo: InvestmentMemo }) {
+  const checklist = memo.diligenceChecklist;
+  if (checklist === null || checklist === undefined) return null;
+
+  return (
+    <SectionCard
+      eyebrow="Private Diligence"
+      infoText="For private or diligence-led companies, this checklist shows which underwriting requirements have been met from available evidence. Critical items must be resolved before a thesis can be generated."
+      title="Diligence Checklist"
+    >
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs uppercase tracking-[0.18em] text-zinc-300">
+          {checklist.passCount} / {checklist.totalCount} resolved
+        </span>
+        {checklist.underwritingReady ? (
+          <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-emerald-200">
+            Underwriting ready
+          </span>
+        ) : (
+          <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-amber-200">
+            Diligence incomplete
+          </span>
+        )}
+        {checklist.blockThesis ? (
+          <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-rose-200">
+            Thesis blocked
+          </span>
+        ) : null}
+      </div>
+
+      <div className="space-y-2">
+        {checklist.items.map((item) => {
+          const badge = DILIGENCE_STATUS_BADGES[item.status];
+          return (
+            <div
+              className={`flex items-center justify-between rounded-2xl border border-zinc-800 px-4 py-3 ${
+                item.status === "missing" && item.isCritical
+                  ? "bg-rose-950/30"
+                  : "bg-zinc-950/70"
+              }`}
+              key={item.field}
+            >
+              <div className="flex items-center gap-3">
+                <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold ${badge.style}`}>
+                  {badge.symbol}
+                </span>
+                <span className="text-sm font-medium text-zinc-100">{item.label}</span>
+                {item.isCritical ? (
+                  <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-rose-200">
+                    Critical
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="max-w-xs truncate text-xs font-light text-zinc-400">{item.note}</span>
+                <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] ${badge.style}`}>
+                  {badge.label}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </SectionCard>
+  );
+}
+
 export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
   const hasStressTestContent =
     memo.stressTest !== null &&
@@ -173,6 +339,8 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
 
   return (
     <section className="fi-fade-in space-y-6">
+      <DiligenceChecklistPanel memo={memo} />
+      <DriverTreePanel memo={memo} />
       <section className="rounded-[2rem] border border-zinc-800 bg-gradient-to-br from-zinc-950 via-zinc-900/80 to-emerald-950/10 p-6 shadow-[0_26px_80px_-44px_rgba(0,0,0,0.98)]">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-4xl">
@@ -210,9 +378,9 @@ export function InvestmentMemoPanel({ memo }: InvestmentMemoPanelProps) {
               {memo.role}
             </span>
             <span
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${MANDATE_FIT_STYLES[memo.mandateFit]}`}
+              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${getMandateFitStyle(memo.mandateFit)}`}
             >
-              {memo.mandateFit}
+              {formatMandateFitLabel(memo.mandateFit)}
             </span>
             <span className="rounded-full border border-zinc-800 bg-zinc-950/80 px-3 py-1 text-xs uppercase tracking-[0.18em] text-zinc-300">
               {memo.coverageProfile}

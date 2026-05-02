@@ -1,6 +1,11 @@
 import type {
   AnalystConsensusEntry,
+  AnalysisReport,
+  DataSource,
   EarningsHighlight,
+  EvidenceAnchor,
+  EvidenceClass,
+  FactLayer,
   FinancialMetric,
   ForwardEstimateSummary,
   FmpHistoricalMultiple,
@@ -9,6 +14,7 @@ import type {
   NewsHighlight,
   PeerComparisonItem,
   RecommendationTrend,
+  SourcedFact,
   StreetView,
   ValuationMetricComparison,
   ValuationView,
@@ -26,10 +32,27 @@ import {
   enrichNewsHighlight,
   summarizeNewsSentiment,
 } from "@/lib/news-sentiment";
+import { buildRelevantPeerItems } from "@/lib/peer-engine";
 
 const DIRECTIONAL_INSIDER_CODES = new Set(["P", "S"]);
 const MIN_MEANINGFUL_INSIDER_NOTIONAL = 500_000;
 const MIN_MEANINGFUL_INSIDER_SHARE_CHANGE = 10_000;
+const EVIDENCE_CLASSES: readonly EvidenceClass[] = [
+  "primary-filing",
+  "registry",
+  "market-data-vendor",
+  "analyst-consensus",
+  "news-reporting",
+  "synthesized-web",
+  "model-inference",
+];
+
+type EvidenceClassBreakdown = Record<EvidenceClass, number>;
+type EvidenceClassFact = {
+  readonly evidenceClass?: EvidenceClass;
+  readonly source?: DataSource | string;
+  readonly sources?: readonly DataSource[];
+};
 
 type MeaningfulInsiderFlowSummary = {
   readonly direction: "buy" | "sell";
@@ -37,6 +60,361 @@ type MeaningfulInsiderFlowSummary = {
   readonly totalNotional: number;
   readonly transactionCount: number;
 };
+
+function slugifyFactId(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
+
+function nextFactId(baseId: string, used: Set<string>): string {
+  let candidate = baseId;
+  let index = 2;
+
+  while (used.has(candidate)) {
+    candidate = `${baseId}-${index}`;
+    index += 1;
+  }
+
+  used.add(candidate);
+  return candidate;
+}
+
+function formatFactMetricValue(metric: FinancialMetric): string | number | null {
+  if (metric.value === null) {
+    return null;
+  }
+
+  if (typeof metric.value === "string") {
+    return metric.value;
+  }
+
+  if (metric.format === "percent") {
+    return `${metric.value.toFixed(1)}%`;
+  }
+
+  if (metric.format === "currency") {
+    return new Intl.NumberFormat("en-US", {
+      currency: "USD",
+      maximumFractionDigits: 1,
+      notation: "compact",
+      style: "currency",
+    }).format(metric.value);
+  }
+
+  return Number.isInteger(metric.value) ? metric.value : Number(metric.value.toFixed(2));
+}
+
+function countFactLayerItems(items: readonly SourcedFact[]): Omit<
+  FactLayer,
+  "items"
+> {
+  return {
+    primaryFilingCount: items.filter(
+      (item) => item.evidenceClass === "primary-filing",
+    ).length,
+    vendorDataCount: items.filter(
+      (item) =>
+        item.evidenceClass === "market-data-vendor" ||
+        item.evidenceClass === "analyst-consensus" ||
+        item.evidenceClass === "news-reporting",
+    ).length,
+    synthesizedCount: items.filter(
+      (item) => item.evidenceClass === "synthesized-web",
+    ).length,
+  };
+}
+
+export function evidenceClassForSource(
+  source: DataSource,
+  usage:
+    | "analyst-consensus"
+    | "market-data"
+    | "news"
+    | "profile"
+    | "filing" = "market-data",
+): EvidenceClass {
+  if (source === "sec-edgar") {
+    return "primary-filing";
+  }
+
+  if (source === "companies-house" || source === "gleif") {
+    return usage === "filing" ? "primary-filing" : "registry";
+  }
+
+  if (source === "finnhub" || source === "fmp") {
+    if (usage === "analyst-consensus") {
+      return "analyst-consensus";
+    }
+
+    if (usage === "news") {
+      return "news-reporting";
+    }
+
+    return "market-data-vendor";
+  }
+
+  return "synthesized-web";
+}
+
+function metricEvidenceClass(metric: FinancialMetric): EvidenceClass | undefined {
+  if (metric.evidenceClass !== undefined) {
+    return metric.evidenceClass;
+  }
+
+  if (metric.source === undefined) {
+    return undefined;
+  }
+
+  if (metric.source === "finnhub" && metric.label.includes("Street Target")) {
+    return evidenceClassForSource(metric.source, "analyst-consensus");
+  }
+
+  return evidenceClassForSource(metric.source);
+}
+
+export function evidenceClassForSources(
+  sources: readonly DataSource[],
+): EvidenceClass | undefined {
+  const ranked = sources
+    .map((source) => evidenceClassForSource(source))
+    .sort((left, right) => evidenceClassRank(left) - evidenceClassRank(right));
+
+  return ranked[0];
+}
+
+function isDataSource(source: string): source is DataSource {
+  return [
+    "finnhub",
+    "fmp",
+    "sec-edgar",
+    "companies-house",
+    "gleif",
+    "exa-deep",
+    "claude-fallback",
+  ].includes(source);
+}
+
+function evidenceClassRank(evidenceClass: EvidenceClass): number {
+  switch (evidenceClass) {
+    case "primary-filing":
+      return 0;
+    case "registry":
+      return 1;
+    case "market-data-vendor":
+      return 2;
+    case "analyst-consensus":
+      return 3;
+    case "news-reporting":
+      return 4;
+    case "synthesized-web":
+      return 5;
+    case "model-inference":
+      return 6;
+  }
+}
+
+function resolveFactEvidenceClass(fact: EvidenceClassFact): EvidenceClass | undefined {
+  if (fact.evidenceClass !== undefined) {
+    return fact.evidenceClass;
+  }
+
+  if (fact.source !== undefined && isDataSource(fact.source)) {
+    return evidenceClassForSource(fact.source);
+  }
+
+  if (fact.sources !== undefined) {
+    return evidenceClassForSources(fact.sources);
+  }
+
+  return undefined;
+}
+
+function tagMetric(metric: FinancialMetric): FinancialMetric {
+  return {
+    ...metric,
+    evidenceClass: metricEvidenceClass(metric),
+  };
+}
+
+export function filterByEvidenceClass<T extends EvidenceClassFact>(
+  facts: readonly T[],
+  classes: readonly EvidenceClass[],
+): readonly T[] {
+  const allowed = new Set(classes);
+
+  return facts.filter((fact) => {
+    const evidenceClass = resolveFactEvidenceClass(fact);
+
+    return evidenceClass !== undefined && allowed.has(evidenceClass);
+  });
+}
+
+export function getEvidenceClassBreakdown(report: AnalysisReport): EvidenceClassBreakdown {
+  const counts = Object.fromEntries(
+    EVIDENCE_CLASSES.map((evidenceClass) => [evidenceClass, 0]),
+  ) as Record<EvidenceClass, number>;
+  const facts: EvidenceClassFact[] = [
+    ...report.metrics,
+    ...report.evidenceSignals,
+    ...report.peerComparison,
+    ...report.analystConsensus,
+    ...report.earningsHighlights,
+    ...report.insiderActivity,
+    ...report.newsHighlights,
+    ...report.recentDevelopments,
+    ...(report.valuationView?.metrics ?? []),
+    ...(report.valuationView?.forwardEstimates ?? []),
+    ...(report.streetView?.latest !== null && report.streetView?.latest !== undefined
+      ? [report.streetView.latest]
+      : []),
+    ...(report.streetView?.previous !== null && report.streetView?.previous !== undefined
+      ? [report.streetView.previous]
+      : []),
+    ...(report.streetView?.priceTarget !== null && report.streetView?.priceTarget !== undefined
+      ? [report.streetView.priceTarget]
+      : []),
+    ...(report.investmentMemo.factLayer?.items ?? []),
+    ...(report.investmentMemo.evidenceAnchors ?? []),
+  ];
+
+  for (const fact of facts) {
+    const evidenceClass = resolveFactEvidenceClass(fact);
+
+    if (evidenceClass !== undefined) {
+      counts[evidenceClass] += 1;
+    }
+  }
+
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+
+  if (total === 0) {
+    return counts;
+  }
+
+  return Object.fromEntries(
+    EVIDENCE_CLASSES.map((evidenceClass) => [
+      evidenceClass,
+      (counts[evidenceClass] / total) * 100,
+    ]),
+  ) as EvidenceClassBreakdown;
+}
+
+export function hasMinimumPrimaryEvidence(
+  report: AnalysisReport,
+  threshold: number,
+): boolean {
+  const breakdown = getEvidenceClassBreakdown(report);
+  const primaryPercent = breakdown["primary-filing"];
+
+  return threshold <= 1
+    ? primaryPercent / 100 >= threshold
+    : primaryPercent >= threshold;
+}
+
+export function buildFactLayer(
+  result: WaterfallResult,
+  metrics: readonly FinancialMetric[],
+  evidenceAnchors: readonly EvidenceAnchor[],
+): FactLayer {
+  const usedIds = new Set<string>();
+  const items: SourcedFact[] = [];
+
+  const pushFact = (fact: SourcedFact): void => {
+    const evidenceId =
+      fact.evidenceId === null
+        ? nextFactId(`${fact.source}:${slugifyFactId(fact.claim)}`, usedIds)
+        : nextFactId(fact.evidenceId, usedIds);
+
+    if (fact.evidenceClass === "model-inference") {
+      return;
+    }
+
+    items.push({
+      ...fact,
+      evidenceId,
+    });
+  };
+
+  for (const anchor of evidenceAnchors) {
+    const evidenceClass =
+      anchor.evidenceClass ?? evidenceClassForSource(anchor.source);
+
+    pushFact({
+      claim: `${anchor.label}${anchor.period === null ? "" : ` (${anchor.period})`}`,
+      value: anchor.value,
+      evidenceClass,
+      evidenceId: anchor.id,
+      period: anchor.period,
+      source: anchor.source,
+    });
+  }
+
+  for (const metric of metrics) {
+    if (metric.source === undefined || metric.value === null) {
+      continue;
+    }
+
+    const evidenceClass =
+      metric.evidenceClass ?? evidenceClassForSource(metric.source);
+    const formattedValue = formatFactMetricValue(metric);
+
+    pushFact({
+      claim: `${metric.label}${metric.period === undefined ? "" : ` (${metric.period})`}`,
+      value: formattedValue,
+      evidenceClass,
+      evidenceId: null,
+      period: metric.period ?? null,
+      source: metric.source,
+    });
+  }
+
+  if (result.secEdgar !== null && result.secEdgar.data.companyInfo !== null) {
+    pushFact({
+      claim: "SEC company identity",
+      value: result.secEdgar.data.companyInfo.name,
+      evidenceClass: "primary-filing",
+      evidenceId: null,
+      period: null,
+      source: "sec-edgar",
+    });
+  }
+
+  if (
+    result.companiesHouse !== null &&
+    result.companiesHouse.data.profile !== null
+  ) {
+    pushFact({
+      claim: "Companies House company status",
+      value: result.companiesHouse.data.profile.company_status ?? null,
+      evidenceClass: "registry",
+      evidenceId: null,
+      period: null,
+      source: "companies-house",
+    });
+  }
+
+  const deduped: SourcedFact[] = [];
+  const seen = new Set<string>();
+
+  for (const item of items) {
+    const key = `${item.source}:${item.claim}:${String(item.value)}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(item);
+  }
+
+  return {
+    items: deduped,
+    ...countFactLayerItems(deduped),
+  };
+}
 
 function normalizeInsiderTransactionCode(code: string): string {
   return code.trim().toUpperCase().slice(0, 1);
@@ -85,30 +463,6 @@ export function summarizeMeaningfulInsiderFlow(
     totalNotional,
     transactionCount: directionalItems.length,
   };
-}
-
-function scorePeerComparisonCandidate(
-  peer: PeerComparisonItem,
-): number {
-  let score = 0;
-
-  if (peer.marketCap !== null) {
-    score += 1;
-  }
-
-  if (peer.peRatio !== null) {
-    score += 2;
-  }
-
-  if (peer.evToEbitda !== null) {
-    score += 2;
-  }
-
-  if (peer.revenueGrowth !== null) {
-    score += 2;
-  }
-
-  return score;
 }
 
 export function extractXbrlMetrics(
@@ -708,18 +1062,20 @@ export function buildValuationView(result: WaterfallResult): ValuationView | nul
     const historicalRange = getHistoricalRange(historicalMultiples, label);
     const current = getCurrentValuationMetric(result, label);
     const forward = getForwardValue(label, result);
+    const source =
+      historicalRange.low !== null ||
+      historicalRange.high !== null ||
+      forward !== null
+        ? "fmp"
+        : "finnhub";
     return {
       label,
       current,
       historicalLow: historicalRange.low,
       historicalHigh: historicalRange.high,
       forward,
-      source:
-        historicalRange.low !== null ||
-        historicalRange.high !== null ||
-        forward !== null
-          ? "fmp"
-          : "finnhub",
+      source,
+      evidenceClass: evidenceClassForSource(source),
     };
   });
   const forwardEstimates: ForwardEstimateSummary[] = estimateRows.map((row) => ({
@@ -727,6 +1083,7 @@ export function buildValuationView(result: WaterfallResult): ValuationView | nul
     revenueEstimate: row.estimatedRevenueAvg,
     epsEstimate: row.estimatedEpsAvg,
     source: "fmp",
+    evidenceClass: evidenceClassForSource("fmp", "analyst-consensus"),
   }));
   const currentPrice = result.finnhub?.data.quote?.t
     ? result.finnhub.data.quote.c
@@ -745,9 +1102,15 @@ export function buildValuationView(result: WaterfallResult): ValuationView | nul
       metric.forward !== null,
   );
   const hasForwardEstimates = forwardEstimates.length > 0;
+  const currentFinnhubMarketCap =
+    result.finnhub?.data.basicFinancials?.metric.marketCapitalization !== null &&
+    result.finnhub?.data.basicFinancials?.metric.marketCapitalization !== undefined
+      ? result.finnhub.data.basicFinancials.metric.marketCapitalization * 1_000_000
+      : null;
   const hasEnterpriseValue =
     enterpriseValueRow?.enterpriseValue !== null ||
-    enterpriseValueRow?.marketCapitalization !== null;
+    enterpriseValueRow?.marketCapitalization !== null ||
+    currentFinnhubMarketCap !== null;
   const hasTargetFallback = fmpPriceTarget !== null;
   if (!hasMetrics && !hasForwardEstimates && !hasEnterpriseValue && !hasTargetFallback) {
     return null;
@@ -777,8 +1140,9 @@ export function buildValuationView(result: WaterfallResult): ValuationView | nul
     forwardEstimates,
     enterpriseValue: enterpriseValueRow?.enterpriseValue ?? null,
     marketCap:
+      currentFinnhubMarketCap ??
       enterpriseValueRow?.marketCapitalization ??
-      (result.finnhub?.data.basicFinancials?.metric.marketCapitalization ?? null),
+      null,
     priceTargetFallback:
       fmpPriceTarget === null
         ? null
@@ -790,6 +1154,7 @@ export function buildValuationView(result: WaterfallResult): ValuationView | nul
             targetLow: fmpPriceTarget.targetLow,
             upsidePercent,
             source: "fmp",
+            evidenceClass: evidenceClassForSource("fmp", "analyst-consensus"),
           },
     note: notes.join(" "),
     source:
@@ -800,28 +1165,10 @@ export function buildValuationView(result: WaterfallResult): ValuationView | nul
 export function buildPeerComparison(
   result: WaterfallResult,
 ): readonly PeerComparisonItem[] {
-  if (result.fmp === null) {
-    return [];
-  }
-
-  return result.fmp.data.peers
-    .map((peer) => ({
-      symbol: peer.symbol,
-      companyName: peer.companyName,
-      currentPrice: peer.currentPrice,
-      marketCap: peer.marketCap,
-      peRatio: peer.peRatio,
-      evToEbitda: peer.evToEbitda,
-      revenueGrowth: peer.revenueGrowth,
-      source: "fmp" as const,
-    }))
-    .map((peer) => ({
-      peer,
-      score: scorePeerComparisonCandidate(peer),
-    }))
-    .filter(({ score }) => score >= 2)
-    .sort((left, right) => right.score - left.score)
-    .map(({ peer }) => peer);
+  return buildRelevantPeerItems(result).map((peer) => ({
+    ...peer,
+    evidenceClass: peer.evidenceClass ?? evidenceClassForSource("fmp"),
+  }));
 }
 
 export function assembleMetrics(result: WaterfallResult): readonly FinancialMetric[] {
@@ -833,7 +1180,7 @@ export function assembleMetrics(result: WaterfallResult): readonly FinancialMetr
     ...(result.claudeFallback !== null
       ? result.claudeFallback.data.extractedMetrics
       : []),
-  ];
+  ].map(tagMetric);
 }
 
 function toRecommendationTrend(
@@ -916,6 +1263,7 @@ export function extractConsensus(
         bearish: latestTrend.bearish,
       },
       source: "finnhub",
+      evidenceClass: evidenceClassForSource("finnhub", "analyst-consensus"),
     },
   ];
 }
@@ -930,11 +1278,17 @@ export function buildStreetView(result: WaterfallResult): StreetView | null {
   const latest =
     sortedRecommendations[0] === undefined
       ? null
-      : toRecommendationTrend(sortedRecommendations[0]);
+      : {
+          ...toRecommendationTrend(sortedRecommendations[0]),
+          evidenceClass: evidenceClassForSource("finnhub", "analyst-consensus"),
+        };
   const previous =
     sortedRecommendations[1] === undefined
       ? null
-      : toRecommendationTrend(sortedRecommendations[1]);
+      : {
+          ...toRecommendationTrend(sortedRecommendations[1]),
+          evidenceClass: evidenceClassForSource("finnhub", "analyst-consensus"),
+        };
   const currentPrice = result.finnhub.data.quote?.t
     ? result.finnhub.data.quote.c
     : null;
@@ -958,6 +1312,7 @@ export function buildStreetView(result: WaterfallResult): StreetView | null {
           upsidePercent,
           lastUpdated: result.finnhub.data.priceTarget.lastUpdated,
           source: "finnhub" as const,
+          evidenceClass: evidenceClassForSource("finnhub", "analyst-consensus"),
         }
       : result.fmp?.data.priceTargetConsensus !== null &&
           result.fmp?.data.priceTargetConsensus !== undefined
@@ -969,6 +1324,7 @@ export function buildStreetView(result: WaterfallResult): StreetView | null {
             targetLow: result.fmp.data.priceTargetConsensus.targetLow,
             upsidePercent,
             source: "fmp" as const,
+            evidenceClass: evidenceClassForSource("fmp", "analyst-consensus"),
           }
         : null;
   const hasStreetData = latest !== null || priceTarget !== null;
@@ -1001,6 +1357,7 @@ export function extractEarningsHighlights(
     surprise: item.surprise,
     surprisePercent: item.surprisePercent,
     source: "finnhub",
+    evidenceClass: evidenceClassForSource("finnhub"),
   }));
 }
 
@@ -1019,6 +1376,7 @@ export function extractInsiderActivity(
     filingDate: item.filingDate,
     transactionPrice: item.transactionPrice,
     source: "finnhub",
+    evidenceClass: evidenceClassForSource("finnhub"),
   }));
 }
 
@@ -1028,15 +1386,16 @@ export function extractNewsHighlights(
   if (result.finnhub === null) {
     return [];
   }
-  return result.finnhub.data.news.slice(0, 5).map((item) =>
-    enrichNewsHighlight({
+  return result.finnhub.data.news.slice(0, 5).map((item) => ({
+    ...enrichNewsHighlight({
       headline: item.headline,
       source: item.source,
       publishedAt: new Date(item.datetime * 1000).toISOString(),
       summary: item.summary,
       url: item.url,
     }),
-  );
+    evidenceClass: evidenceClassForSource("finnhub", "news"),
+  }));
 }
 
 export function buildNewsSentimentSummary(

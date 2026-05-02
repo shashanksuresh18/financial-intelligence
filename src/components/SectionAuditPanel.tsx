@@ -1,7 +1,8 @@
-import type { SectionAuditItem } from "@/lib/types";
+import type { SectionAuditItem, WithheldSection } from "@/lib/types";
 
 type SectionAuditPanelProps = {
   readonly items: readonly SectionAuditItem[];
+  readonly withheldSections?: readonly WithheldSection[];
 };
 
 const STATUS_STYLES: Record<SectionAuditItem["status"], string> = {
@@ -26,6 +27,7 @@ function summarize(items: readonly SectionAuditItem[]): {
 
 export function SectionAuditPanel({
   items,
+  withheldSections = [],
 }: SectionAuditPanelProps) {
   const summary = summarize(items);
 
@@ -44,6 +46,29 @@ export function SectionAuditPanel({
           </p>
         ) : null}
       </div>
+
+      {withheldSections.length > 0 ? (
+        <div className="mb-4 rounded-2xl border border-amber-400/30 bg-amber-950/30 p-4 text-amber-100">
+          <p className="text-xs uppercase tracking-[0.22em] text-amber-200">
+            {withheldSections.length} withheld section{withheldSections.length === 1 ? "" : "s"}
+          </p>
+          <div className="mt-3 space-y-2">
+            {withheldSections.map((section) => (
+              <div
+                className="rounded-xl border border-amber-400/20 bg-zinc-950/30 px-3 py-2"
+                key={`${section.section}-${section.reason}`}
+              >
+                <p className="text-xs uppercase tracking-[0.16em] text-amber-200">
+                  {section.section.replace(/-/g, " ")}
+                </p>
+                <p className="mt-1 text-sm font-light leading-relaxed">
+                  {section.userMessage}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="space-y-3">
         {items.length === 0 ? (

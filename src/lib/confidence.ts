@@ -401,6 +401,33 @@ function buildFreshnessComponent(result: WaterfallResult): ConfidenceComponent {
   };
 }
 
+function buildBreadthWithoutDepthComponent(
+  result: WaterfallResult,
+): ConfidenceComponent | null {
+  const hasPrimaryFiling =
+    result.secEdgar !== null && result.secEdgar.data.xbrlFacts !== null;
+
+  if (hasPrimaryFiling) {
+    return null;
+  }
+
+  const vendorCount = [result.finnhub, result.fmp].filter(
+    (source) => source !== null,
+  ).length;
+
+  if (result.activeSources.length >= 3 && vendorCount >= 2) {
+    return {
+      key: "breadth-without-depth",
+      label: "Breadth Without Depth",
+      score: -5,
+      rationale:
+        "Multiple vendor sources are active but none provides filing-backed primary evidence; source breadth does not substitute for depth.",
+    };
+  }
+
+  return null;
+}
+
 export function computeConfidence(
   result: WaterfallResult,
   entityResolution: EntityResolution,
@@ -412,6 +439,12 @@ export function computeConfidence(
     buildStreetComponent(result),
     buildFreshnessComponent(result),
   ];
+  const breadthWithoutDepthComponent = buildBreadthWithoutDepthComponent(result);
+
+  if (breadthWithoutDepthComponent !== null) {
+    components.push(breadthWithoutDepthComponent);
+  }
+
   const score = components.reduce((total, component) => total + component.score, 0);
   const level = getLevel(score);
   const strongestComponents = [...components]

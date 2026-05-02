@@ -1,0 +1,44 @@
+flowchart TD
+    A["ORCHESTRATOR<br/>runAnalysis()"] --> B["1️⃣ Market Data Agent"]
+
+    B --> B1["Run Waterfall:<br/>Finnhub, FMP, SEC EDGAR,<br/>Companies House, GLEIF,<br/>Exa Deep, Claude Fallback"]
+    B1 --> B2["Returns: WaterfallResult<br/>with all source data"]
+
+    B2 --> C["2️⃣ Entity Agent"]
+    C --> C1["Resolve Company<br/>prioritize by source<br/>SEC > Finnhub > CH > GLEIF > Exa"]
+    C1 --> C2["Returns: EntityResolution<br/>Canonical name + Primary source"]
+
+    C2 --> D["3️⃣ Validation Agent"]
+    D --> D1["Assessment of<br/>Data Quality<br/>Coverage Label"]
+    D1 --> D2["Returns: ValidationReport<br/>Coverage + Tensions + Gaps"]
+
+    B2 --> E["4️⃣ Report Assembly<br/>Non-agent functions"]
+    E --> E1["Extract Metrics<br/>Street View<br/>Valuation View<br/>Earnings Highlights<br/>Insider Activity<br/>News Sentiment<br/>Peer Comparison<br/>Recent Developments"]
+    E1 --> E2["Build Signals<br/>Coverage Gaps<br/>Disagreement Notes<br/>Section Audit"]
+
+    D2 --> F["5️⃣ Memo Agent<br/>DRAFT PASS"]
+    E2 --> F
+    C2 --> F
+
+    F --> F1["Investment Memo<br/>Narrative<br/>Investment Thesis"]
+    F1 --> G["6️⃣ Challenger Agent"]
+
+    G --> G1["Review Draft Memo<br/>Stress test assumptions<br/>Identify gaps"]
+    G1 --> G2["Returns: ChallengerReport<br/>Unstated Assumptions<br/>Evidence Gaps<br/>Counter Scenarios"]
+
+    G2 --> H["7️⃣ Memo Agent<br/>FINAL PASS"]
+
+    H --> H1["Incorporate Challenger<br/>Generate Final<br/>Investment Memo"]
+
+    H1 --> I["Return AnalysisReport<br/>Complete Package:<br/>- Entity Resolution<br/>- Metrics<br/>- Memo<br/>- Signals<br/>- Coverage Gaps<br/>- Confidence"]
+
+    I --> J["📊 Display on Dashboard"]
+
+    style A fill:#4A90E2
+    style B fill:#50C878
+    style C fill:#50C878
+    style D fill:#50C878
+    style F fill:#FF6B6B
+    style G fill:#FF6B6B
+    style H fill:#FF6B6B
+    style E fill:#FFB84D

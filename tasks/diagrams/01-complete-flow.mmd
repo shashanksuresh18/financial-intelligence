@@ -1,0 +1,55 @@
+flowchart TD
+    Start["User Enters Query"] --> Choice{"Search Type?"}
+
+    Choice -->|Company Name| CompanyPath["COMPANIES WORKFLOW"]
+    Choice -->|Investment Theme| ThemePath["THEMES WORKFLOW"]
+
+    %% COMPANIES PATH
+    CompanyPath --> CP1["API: /api/analyze"]
+    CP1 --> CP2["Market Data Agent<br/>runWaterfall()"]
+
+    CP2 --> CP2a["Parallel Fetch:<br/>- Finnhub<br/>- FMP<br/>- SEC EDGAR<br/>- Companies House<br/>- GLEIF<br/>- Exa Deep<br/>- Claude Fallback"]
+
+    CP2a --> CP3["Entity Agent<br/>buildEntityResolution()"]
+    CP3 --> CP3a["Resolve to Canonical Name<br/>+ Primary Source<br/>+ All Identifiers"]
+
+    CP3a --> CP4["Validation Agent<br/>validateWaterfall()"]
+    CP4 --> CP4a["Assess Data Quality<br/>Confidence Rating:<br/>HIGH/MEDIUM/LOW"]
+
+    CP4a --> CP5["Assemble Reports"]
+    CP5 --> CP5a["Extract Metrics<br/>Street View<br/>Valuation View<br/>Analyst Consensus<br/>Peer Comparison<br/>Earnings/Insider Activity"]
+
+    CP5a --> CP6["Evidence Signals<br/>Coverage Gaps<br/>Disagreement Notes"]
+
+    CP6 --> CP7["Memo Agent<br/>runMemoAgent<br/>Draft Pass"]
+    CP7 --> CP7a["Generate Initial<br/>Investment Memo"]
+
+    CP7a --> CP8["Challenger Agent<br/>runChallengerAgent()"]
+    CP8 --> CP8a["Review Draft<br/>Identify:<br/>- Unstated Assumptions<br/>- Evidence Gaps<br/>- Counter Scenarios"]
+
+    CP8a --> CP9["Memo Agent<br/>Final Pass"]
+    CP9 --> CP9a["Generate Final<br/>Investment Memo<br/>Narrative + Sections"]
+
+    CP9a --> CP10["Return AnalysisReport<br/>Display on Dashboard"]
+
+    %% THEMES PATH
+    ThemePath --> TP1["API: /api/themes"]
+    TP1 --> TP2["Theme Agent<br/>exploreTheme()"]
+
+    TP2 --> TP2a["Initialize Exa Deep Client"]
+    TP2a --> TP2b["Web Search for Theme"]
+    TP2b --> TP2c["Extract Top Results"]
+
+    TP2c --> TP3["Claude API<br/>Structured Extraction"]
+    TP3 --> TP3a["Analyze Results<br/>with JSON Schema"]
+
+    TP3a --> TP4["Extract Theme Metadata"]
+    TP4 --> TP4a["Theme Name<br/>Description<br/>Key Drivers<br/>Headwinds<br/>Related Themes<br/>Companies List"]
+
+    TP4a --> TP5["Normalize Companies"]
+    TP5 --> TP5a["Sort by Exposure Score<br/>Slice Top 10"]
+
+    TP5a --> TP6["Return ThemeResult<br/>Display Themes Panel"]
+
+    CP10 --> End["🎯 User Views Report"]
+    TP6 --> End

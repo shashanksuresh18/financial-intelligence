@@ -1,6 +1,8 @@
 import type {
   CoverageGap,
+  DataSource,
   DisagreementNote,
+  EvidenceClass,
   EvidenceSignal,
 } from "@/lib/types";
 
@@ -21,6 +23,48 @@ const SEVERITY_STYLES: Record<CoverageGap["severity"], string> = {
   medium: "border-amber-400/20 bg-amber-400/10 text-amber-100",
   high: "border-rose-400/20 bg-rose-400/10 text-rose-100",
 };
+
+const EVIDENCE_CLASS_LABELS: Record<EvidenceClass, string> = {
+  "primary-filing": "Primary filing",
+  registry: "Registry",
+  "market-data-vendor": "Market data",
+  "analyst-consensus": "Analyst consensus",
+  "news-reporting": "News",
+  "synthesized-web": "Synthesized web",
+  "model-inference": "Model inference",
+};
+
+function sourceToEvidenceClass(source: DataSource): EvidenceClass {
+  if (source === "sec-edgar") {
+    return "primary-filing";
+  }
+
+  if (source === "companies-house" || source === "gleif") {
+    return "registry";
+  }
+
+  if (source === "exa-deep") {
+    return "synthesized-web";
+  }
+
+  if (source === "claude-fallback") {
+    return "model-inference";
+  }
+
+  return "market-data-vendor";
+}
+
+function getSignalEvidenceClass(item: EvidenceSignal): EvidenceClass {
+  return item.evidenceClass ?? sourceToEvidenceClass(item.sources[0] ?? "claude-fallback");
+}
+
+function EvidenceClassBadge({ evidenceClass }: { readonly evidenceClass: EvidenceClass }) {
+  return (
+    <span className="rounded-full border border-zinc-700 bg-zinc-950/70 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-zinc-300">
+      {EVIDENCE_CLASS_LABELS[evidenceClass]}
+    </span>
+  );
+}
 
 function formatSources(sources: readonly string[]): string {
   return sources.join(" • ");
@@ -58,7 +102,10 @@ export function ResearchOpsPanel({
                   className={`rounded-xl border px-4 py-3 ${TONE_STYLES[item.tone]}`}
                   key={`${item.title}-${index}`}
                 >
-                  <p className="text-sm font-medium">{item.title}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-medium">{item.title}</p>
+                    <EvidenceClassBadge evidenceClass={getSignalEvidenceClass(item)} />
+                  </div>
                   <p className="mt-2 text-sm leading-6 opacity-90">{item.detail}</p>
                   <p className="mt-2 text-[11px] uppercase tracking-[0.18em] opacity-75">
                     {formatSources(item.sources)}

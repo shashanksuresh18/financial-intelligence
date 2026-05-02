@@ -7,6 +7,15 @@ export type DataSource =
   | 'exa-deep'
   | 'claude-fallback';
 
+export type EvidenceClass =
+  | 'primary-filing'
+  | 'registry'
+  | 'market-data-vendor'
+  | 'analyst-consensus'
+  | 'news-reporting'
+  | 'synthesized-web'
+  | 'model-inference';
+
 export type ConfidenceLevel = 'low' | 'medium' | 'high';
 
 export type ConfidenceComponent = {
@@ -19,7 +28,8 @@ export type ConfidenceComponent = {
     | 'underwriting-depth-cap'
     | 'underwriting-evidence-penalty'
     | 'unresolved-tension-penalty'
-    | 'secondary-evidence-cap';
+    | 'secondary-evidence-cap'
+    | 'breadth-without-depth';
   readonly label: string;
   readonly score: number;
   readonly rationale: string;
@@ -88,6 +98,7 @@ export type FinancialMetric = {
   readonly format?: 'currency' | 'number' | 'percent';
   readonly period?: string;
   readonly source?: DataSource;
+  readonly evidenceClass?: EvidenceClass;
 };
 
 export type AnalystConsensusEntry = {
@@ -107,6 +118,7 @@ export type AnalystConsensusEntry = {
     readonly bearish: number;
   };
   readonly source?: DataSource;
+  readonly evidenceClass?: EvidenceClass;
 };
 
 export type RecommendationTrend = {
@@ -119,6 +131,7 @@ export type RecommendationTrend = {
   readonly bullish: number;
   readonly neutral: number;
   readonly bearish: number;
+  readonly evidenceClass?: EvidenceClass;
 };
 
 export type PriceTargetSummary = {
@@ -130,6 +143,7 @@ export type PriceTargetSummary = {
   readonly upsidePercent: number | null;
   readonly lastUpdated?: string;
   readonly source: DataSource;
+  readonly evidenceClass?: EvidenceClass;
 };
 
 export type ValuationMetricComparison = {
@@ -139,6 +153,7 @@ export type ValuationMetricComparison = {
   readonly historicalHigh: number | null;
   readonly forward: number | null;
   readonly source: DataSource;
+  readonly evidenceClass?: EvidenceClass;
 };
 
 export type ForwardEstimateSummary = {
@@ -146,6 +161,7 @@ export type ForwardEstimateSummary = {
   readonly revenueEstimate: number | null;
   readonly epsEstimate: number | null;
   readonly source: DataSource;
+  readonly evidenceClass?: EvidenceClass;
 };
 
 export type PeerComparisonItem = {
@@ -157,6 +173,23 @@ export type PeerComparisonItem = {
   readonly evToEbitda: number | null;
   readonly revenueGrowth: number | null;
   readonly source: DataSource;
+  readonly evidenceClass?: EvidenceClass;
+};
+
+export type PeerRelevanceScore = {
+  readonly symbol: string;
+  readonly companyName: string;
+  readonly totalScore: number;
+  readonly passes: boolean;
+  readonly breakdown: {
+    readonly businessModelMatch: number;
+    readonly monetizationModelMatch: number;
+    readonly marginProfileCompatible: number;
+    readonly capitalIntensityMatch: number;
+    readonly customerTypeMatch: number;
+    readonly regulatorySimilarity: number;
+  };
+  readonly disqualifyingReasons: readonly string[];
 };
 
 export type ValuationView = {
@@ -225,7 +258,7 @@ export type InvestmentMandateFit =
   | 'Aligned mandate'
   | 'Borderline mandate fit'
   | 'Out of mandate'
-  | 'n/a â€” benchmark territory';
+  | 'Benchmark territory';
 
 export type InvestmentRole =
   | 'Core target'
@@ -263,12 +296,43 @@ export type BusinessModelTag =
   | 'turnaround'
   | 'other';
 
+export type CompanyArchetype =
+  | 'consumer-fintech-bnpl'
+  | 'software-saas'
+  | 'ai-infrastructure'
+  | 'mega-cap-platform'
+  | 'uk-retail-lfl'
+  | 'industrial-b2b'
+  | 'private-early-stage'
+  | 'private-growth'
+  | 'turnaround'
+  | 'other';
+
+export type DriverMetricStatus = 'verified' | 'estimated' | 'inferred' | 'missing';
+
+export type DriverMetric = {
+  readonly name: string;
+  readonly status: DriverMetricStatus;
+  readonly value: string | number | null;
+  readonly evidenceId: string | null;
+  readonly importance: 'critical' | 'important' | 'supplementary';
+  readonly note: string | null;
+};
+
+export type DriverTree = {
+  readonly archetype: CompanyArchetype;
+  readonly drivers: readonly DriverMetric[];
+  readonly criticalMissing: readonly string[];
+  readonly blocksConviction: boolean;
+};
+
 export type EvidenceAnchor = {
   readonly id: string;
   readonly source: DataSource;
   readonly label: string;
   readonly value: string;
   readonly period: string | null;
+  readonly evidenceClass?: EvidenceClass;
 };
 
 export type ThesisDriver = {
@@ -278,6 +342,40 @@ export type ThesisDriver = {
   readonly confidence: ConfidenceLevel;
   readonly currentlyHolds: boolean;
   readonly ifFails: string;
+};
+
+export type SourcedFact = {
+  readonly claim: string;
+  readonly value: string | number | null;
+  readonly evidenceClass: EvidenceClass;
+  readonly evidenceId: string | null;
+  readonly period: string | null;
+  readonly source: DataSource;
+};
+
+export type FactLayer = {
+  readonly items: readonly SourcedFact[];
+  readonly primaryFilingCount: number;
+  readonly vendorDataCount: number;
+  readonly synthesizedCount: number;
+};
+
+export type DerivedInference = {
+  readonly claim: string;
+  readonly derivedFrom: readonly string[];
+  readonly mechanismType: 'delta' | 'ratio' | 'comparison' | 'trend';
+  readonly quantified: boolean;
+};
+
+export type InferenceLayer = {
+  readonly items: readonly DerivedInference[];
+};
+
+export type JudgmentLayer = {
+  readonly recommendation: InvestmentRecommendation | null;
+  readonly conviction: ConfidenceLevel | null;
+  readonly blocked: boolean;
+  readonly blockReasons: readonly string[];
 };
 
 export type UnitEconomicMetric =
@@ -424,6 +522,9 @@ export type LegacyInvestmentMemo = {
 
 export type InvestmentMemo = LegacyInvestmentMemo & {
   readonly evidenceAnchors?: readonly EvidenceAnchor[] | null;
+  readonly factLayer?: FactLayer | null;
+  readonly inferenceLayer?: InferenceLayer | null;
+  readonly judgmentLayer?: JudgmentLayer | null;
   readonly thesisDrivers?: readonly ThesisDriver[] | null;
   readonly unitEconomics?: UnitEconomics | null;
   readonly bullCase?: InvestmentScenario | null;
@@ -435,6 +536,8 @@ export type InvestmentMemo = LegacyInvestmentMemo & {
   readonly comparablesAnchor?: ComparablesAnchor | null;
   readonly mandateRationale?: MandateRationale | null;
   readonly amakorDepthIndex?: AmakorDepthIndex | null;
+  readonly driverTree?: DriverTree | null;
+  readonly diligenceChecklist?: DiligenceChecklist | null;
 };
 
 export type ReportDelta = {
@@ -448,6 +551,7 @@ export type EvidenceSignal = {
   readonly detail: string;
   readonly tone: 'positive' | 'negative' | 'neutral';
   readonly sources: readonly DataSource[];
+  readonly evidenceClass?: EvidenceClass;
 };
 
 export type CoverageGap = {
@@ -508,6 +612,7 @@ export type NewsHighlight = {
   readonly sentimentLabel: NewsSentimentLabel;
   readonly sentimentScore: number;
   readonly sentimentRationale: string;
+  readonly evidenceClass?: EvidenceClass;
 };
 
 export type RecentDevelopment = {
@@ -519,6 +624,7 @@ export type RecentDevelopment = {
   readonly impact: RecentDevelopmentImpact;
   readonly whyItMatters: string;
   readonly materialityScore: number;
+  readonly evidenceClass?: EvidenceClass;
 };
 
 export type EarningsHighlight = {
@@ -528,6 +634,7 @@ export type EarningsHighlight = {
   readonly surprise: number | null;
   readonly surprisePercent: number | null;
   readonly source: DataSource;
+  readonly evidenceClass?: EvidenceClass;
 };
 
 export type InsiderActivityItem = {
@@ -539,6 +646,7 @@ export type InsiderActivityItem = {
   readonly filingDate?: string;
   readonly transactionPrice: number | null;
   readonly source: DataSource;
+  readonly evidenceClass?: EvidenceClass;
 };
 
 export type MonitorItem = {
@@ -565,6 +673,89 @@ export type DataSourceResult<T> = {
   readonly error?: string;
 };
 
+export type ReconciliationField =
+  | 'market-cap'
+  | 'share-count'
+  | 'enterprise-value'
+  | 'cash-debt'
+  | 'currency'
+  | 'date-alignment';
+
+export type ReconciliationCheck = {
+  readonly field: ReconciliationField;
+  readonly status: 'reconciled' | 'partial' | 'unresolved' | 'unavailable';
+  readonly sources: readonly DataSource[];
+  readonly note: string;
+};
+
+export type ReconciliationStatus = {
+  readonly overall: 'clean' | 'partial' | 'failed';
+  readonly checks: readonly ReconciliationCheck[];
+  readonly blocksValuationView: boolean;
+};
+
+export const defaultReconciliationStatus: ReconciliationStatus = {
+  overall: 'clean',
+  checks: [],
+  blocksValuationView: false,
+};
+
+export type WithheldSectionReason =
+  | 'insufficient-peer-relevance'
+  | 'unreconciled-valuation-inputs'
+  | 'weak-assumption-support'
+  | 'thin-evidence-base'
+  | 'private-diligence-insufficient'
+  | 'no-filing-depth';
+
+export type WithheldSection = {
+  readonly section:
+    | 'peer-comparison'
+    | 'priced-in-analysis'
+    | 'scenario-range'
+    | 'strong-recommendation'
+    | 'private-thesis';
+  readonly reason: WithheldSectionReason;
+  readonly userMessage: string;
+};
+
+export type DiligenceCheckField =
+  | 'revenue-verified'
+  | 'gross-margin-verified'
+  | 'retention-verified'
+  | 'concentration-verified'
+  | 'round-terms-reviewed'
+  | 'governance-understood'
+  | 'unit-economics-understood';
+
+export type DiligenceCheckStatus = 'verified' | 'estimated' | 'missing';
+
+export type DiligenceCheckItem = {
+  readonly field: DiligenceCheckField;
+  readonly label: string;
+  readonly status: DiligenceCheckStatus;
+  readonly evidenceId: string | null;
+  readonly note: string;
+  readonly isCritical: boolean;
+};
+
+export type DiligenceChecklist = {
+  readonly revenueVerified: DiligenceCheckItem;
+  readonly grossMarginVerified: DiligenceCheckItem;
+  readonly retentionVerified: DiligenceCheckItem;
+  readonly concentrationVerified: DiligenceCheckItem;
+  readonly roundTermsReviewed: DiligenceCheckItem;
+  readonly governanceUnderstood: DiligenceCheckItem;
+  readonly unitEconomicsUnderstood: DiligenceCheckItem;
+  readonly items: readonly DiligenceCheckItem[];
+  readonly passCount: number;
+  readonly totalCount: number;
+  readonly criticalMissingCount: number;
+  readonly blockThesis: boolean;
+  readonly underwritingReady: boolean;
+  readonly gaps: readonly string[];
+};
+
 export type AnalysisReport = {
   readonly company: string;
   readonly entityResolution: EntityResolution;
@@ -577,6 +768,9 @@ export type AnalysisReport = {
   readonly analystConsensus: readonly AnalystConsensusEntry[];
   readonly streetView: StreetView | null;
   readonly valuationView: ValuationView | null;
+  readonly reconciliationStatus: ReconciliationStatus;
+  readonly withheldSections: readonly WithheldSection[];
+  readonly peerRelevanceScores: readonly PeerRelevanceScore[];
   readonly peerComparison: readonly PeerComparisonItem[];
   readonly earningsHighlights: readonly EarningsHighlight[];
   readonly insiderActivity: readonly InsiderActivityItem[];
@@ -1017,10 +1211,27 @@ export type ChallengerItem = {
   readonly citedSource: string;
 };
 
+export type ChallengerAttackType =
+  | 'hidden-assumption'
+  | 'fragile-variable'
+  | 'disconfirming-signal'
+  | 'growth-quality'
+  | 'moat-challenge'
+  | 'valuation-grounding';
+
+export type ChallengerAttack = {
+  readonly attackType: ChallengerAttackType;
+  readonly claim: string;
+  readonly severity: ValidationSeverity;
+  readonly citedSource: string;
+  readonly counterMeasure: string | null;
+};
+
 export type ChallengerReport = {
   readonly unstatedAssumptions: readonly ChallengerItem[];
   readonly evidenceGaps: readonly ChallengerItem[];
   readonly counterScenarios: readonly ChallengerItem[];
+  readonly attacks?: readonly ChallengerAttack[] | null;
 };
 
 export type StressTestResult = {
@@ -1256,6 +1467,9 @@ export const placeholderAnalysisReport: AnalysisReport = {
   analystConsensus: [],
   streetView: null,
   valuationView: null,
+  reconciliationStatus: defaultReconciliationStatus,
+  withheldSections: [],
+  peerRelevanceScores: [],
   peerComparison: [],
   earningsHighlights: [],
   insiderActivity: [],

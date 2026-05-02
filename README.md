@@ -1,119 +1,116 @@
-# Financial Intelligence
+# Financial Diligence Assistant
 
-Source-backed company analysis for fast diligence. This app combines structured market, filing, registry, and private-company research into an analyst-style report with separate data-confidence and investment-conviction framing, memo synthesis, challenger review, recent developments, and thematic exploration.
+A source-backed diligence and underwriting assistant that distinguishes verified facts, justified inferences, investment judgment, and unknowns that block conviction.
+
+This repo is not an analyst in a box, a Bloomberg alternative, or a recommendation engine that tries to make every company look underwriteable. It is a first-pass diligence system: it assembles available evidence, labels the provenance of that evidence, separates facts from interpretation, and withholds sections when the inputs are too thin or internally inconsistent.
 
 ## What This Repo Does
 
-- Analyze public companies with filing-backed and market-data-backed evidence.
-- Analyze private companies with Exa Deep research and a thinner fallback path when primary disclosure is limited.
-- Generate an investment memo with thesis drivers, quantified bull/bear framing, priced-in analysis, kill criteria, and mandate rationale, then stress-test it with a report-aware challenger agent.
-- Surface recent developments, news sentiment, valuation context, coverage gaps, and evidence tensions.
-- Explore investment themes and click through from a theme to a company analysis.
-- Cache reports and keep a small monitored-company list.
+- Resolves public and private company names across market, filing, registry, and web-research sources.
+- Tags fact-producing outputs by evidence class: primary filing, registry, market-data vendor, analyst consensus, news reporting, synthesized web research, or model inference.
+- Separates the memo into facts, mechanically derived inferences, investment judgment, and unresolved gaps.
+- Reconciles valuation inputs before allowing opinionated valuation framing.
+- Screens peer sets for business-model relevance before rendering comparable-company analysis.
+- Uses company-type driver trees to identify the variables that matter for underwriting.
+- Treats private-company analysis as a diligence checklist rather than a pseudo-public-company memo.
+- Runs a targeted challenger pass against hidden assumptions, fragile variables, disconfirming signals, growth quality, moat support, and valuation grounding.
+- Caches reports and supports a small monitored-company workflow for repeated review.
 
-## Post-Rewrite Status
+## Key Features
 
-The current rewrite moves the product from a source aggregator toward an underwriting assistant. Reports now separate what the evidence says from what an investor should do with it:
+- **Evidence classes:** Report facts carry provenance labels so the UI can distinguish filing-backed facts from vendor data, registry metadata, consensus context, news, synthesized web research, and model inference.
+- **Facts / inferences / judgment split:** The top report view shows what is known, what is inferred from those facts, what judgment is being made, and what remains unknown.
+- **Withheld sections:** Peer comparison, priced-in analysis, scenario ranges, private-company thesis sections, and strong recommendations can be withheld with explicit reasons.
+- **Source reconciliation:** Market cap, enterprise value, cash/debt, currency, share count, and timestamp mismatches are reconciled before valuation judgment is shown.
+- **Peer relevance engine:** Peer rows are screened for business model, monetization model, customer type, margin profile, capital intensity, and regulatory similarity.
+- **Driver trees:** Public and private companies are mapped to archetypes such as BNPL fintech, SaaS, AI infrastructure, mega-cap platform, UK retail, industrial B2B, and turnaround.
+- **Private diligence gates:** Private reports track revenue, gross margin, retention, concentration, round terms, governance, and unit economics. Missing critical items block thesis generation.
+- **Recommendation discipline:** Buy-level language requires resolved reconciliation, adequate evidence depth, peer support or a sound peer-withheld state, meaningful primary or registry evidence, and a bull case not driven only by consensus targets.
 
-- mega-cap public names can be treated as `Reference public comp` instead of being rejected as out-of-mandate targets
-- memo output includes thesis drivers, scenario framing, priced-in analysis, and explicit conditions that would change the call
-- public names lean on SEC/Finnhub/FMP evidence, while private names stay conservative and label primary-diligence gaps directly
-- the challenger step reviews the draft memo for missing assumptions, evidence gaps, and plausible counter-scenarios
+## Recommendation Model
 
-The most visible remaining product gap is peer-comparison density. FMP often returns a peer set before returning a full cross-sectional grid, so some reports can identify comparable companies while still missing peer P/E, revenue growth, margin, or EV/EBITDA fields.
+Recommendations are constrained by evidence quality. The app can produce restrained outputs even when the business is interesting.
+
+- `buy`: reserved for cases where evidence, reconciliation, valuation support, peer framing, and scenario support clear the required thresholds.
+- `hold`: used when the company has enough evidence to be useful, but the case is balanced or better treated as a benchmark.
+- `watch`: used when the company is worth follow-up but underwriting support is incomplete.
+- `avoid`: used when the evidence is negative, the entity match is weak, the mandate fit breaks, or source tensions make the case hard to defend.
+
+Each report also carries a role:
+
+- `Core target`: mandate-fit company with sufficient underwriting support.
+- `Reference public comp`: high-quality public evidence, but better used as a benchmark than a direct target.
+- `Private diligence`: private-company read where primary work is still required.
+- `Watchlist candidate`: usable lead, but not enough support for a stronger view.
+- `Entity resolution case`: company match is too uncertain for investment judgment.
+
+Consensus targets are context, not thesis support. Strong upside from target price alone should not upgrade the recommendation.
 
 ## Product Flow
 
-### Company flow
+### Company Flow
 
-1. User searches for a company on the Company tab.
-2. `/api/search` resolves candidates from public sources or returns a synthetic private-company match for known private names.
-3. `/api/analyze` runs the orchestrated pipeline:
-   - market-data waterfall
-   - entity resolution
-   - validation and confidence scoring
-   - report assembly
-   - draft memo generation
-   - challenger review
-   - final memo generation
-   - optional Nebius memo rewrite
-4. The UI renders the report, recent developments, memo, evidence audit, analyst-help tooltips, and monitoring controls.
+1. User searches for a company.
+2. `/api/search` resolves candidates or returns a private-company match for known private names.
+3. `/api/analyze` runs the source waterfall, entity resolution, validation, reconciliation, memo generation, challenger pass, and final report assembly.
+4. The UI renders facts, inferences, gaps, driver variables, withheld states, memo notes, valuation context, peer context, and source audit panels.
 
-### Theme flow
+### Theme Flow
 
-1. User enters a theme on the Themes tab.
-2. `/api/themes` runs the theme agent with Exa Deep research.
-3. The app returns an exposure map of relevant companies.
-4. Clicking a company switches back to the Company tab and runs a full analysis.
+1. User enters an investment theme.
+2. `/api/themes` runs Exa-backed thematic research.
+3. The app returns relevant companies and exposure notes.
+4. Clicking a company opens a full company analysis.
 
-## Current Architecture
+## Architecture
 
 ### Agents
 
-- `market-data-agent`: runs the public/private source waterfall
-- `entity-agent`: canonical name and identifier resolution
-- `validation-agent`: coverage quality, tensions, and gap detection
-- `memo-agent`: deterministic memo plus optional Nebius synthesis overlay
-- `challenger-agent`: attacks the draft memo with report-aware assumptions, gaps, and counter-scenarios
-- `theme-agent`: Exa-powered thematic research
-- `orchestrator`: step runner that ties the pipeline together
+- `market-data-agent`: runs the public/private source waterfall.
+- `entity-agent`: resolves canonical name and identifiers.
+- `validation-agent`: detects coverage gaps and evidence tensions.
+- `memo-agent`: builds the memo, evidence layers, driver tree, and conditional depth fields.
+- `challenger-agent`: attacks the thesis with targeted challenges.
+- `theme-agent`: runs theme exploration.
+- `orchestrator`: ties the pipeline together.
 
-### Data sources
+### Data Sources
 
-- `Finnhub`: quotes, financial ratios, recommendations, earnings, insider activity, headlines
-- `FMP`: valuation history, forward estimates, peer framing, target-price context
-- `SEC EDGAR`: filing-backed identity and XBRL financial facts
-- `Companies House`: UK registry and accounts metadata
-- `GLEIF`: legal-entity resolution
-- `Exa Deep`: private-company structured web research and theme exploration
-- `Claude fallback`: last-resort web-synthesis path
-- `Nebius`: optional memo-synthesis and retrieval layer, not a primary data source
+- `Finnhub`: quotes, financial ratios, recommendations, earnings, insider activity, and headlines.
+- `FMP`: valuation history, forward estimates, peers, enterprise values, and target-price context.
+- `SEC EDGAR`: filing-backed identity and XBRL facts.
+- `Companies House`: UK registry and accounts metadata.
+- `GLEIF`: legal-entity resolution.
+- `Exa Deep`: structured private-company and theme research.
+- `Claude fallback`: last-resort web synthesis.
+- `Nebius`: optional memo wording overlay and retrieval layer, not a primary data source.
 
 ### Storage
 
-Runtime storage is handled by [`src/lib/db.ts`](src/lib/db.ts), which uses:
+Runtime storage is handled by [`src/lib/db.ts`](src/lib/db.ts):
 
-- Turso if `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are configured
-- local SQLite by default via `DATABASE_URL=file:./prisma/dev.db`
-- in-memory fallback if durable storage is unavailable
-
-The Prisma schema in [`prisma/schema.prisma`](prisma/schema.prisma) documents the `MonitoredCompany` and `AnalysisCache` tables.
-
-## Key Features In The Current App
-
-- Company analysis with report caching
-- Theme exploration with click-through to company analysis
-- Recommendation plus separate analyst `role` classification
-- Explicit separation between `Data Confidence` and `Investment Conviction`
-- Structured memo depth fields: `thesisDrivers`, `bullCase`, `bearCase`, `pricedInAnalysis`, `comparablesAnchor`, `whatWouldChangeTheCall`, `mandateRationale`, and `amakorDepthIndex`
-- Display-layer private-company labels like `Primary diligence required` and `Pass for now`
-- Public-comp / out-of-mandate handling for mega-cap names
-- Recent Developments panel near the top of the report
-- News sentiment rollup from recent headlines
-- Evidence signals, coverage gaps, disagreement notes, section audit, and analyst-help tooltips
-- Watchlist / monitor list support
-- Private-company handling for names like Stripe, SpaceX, Anthropic, OpenAI, and xAI
+- Turso when `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are configured.
+- Local SQLite by default through `DATABASE_URL=file:./prisma/dev.db`.
+- In-memory fallback if durable storage is unavailable.
 
 ## Important Files
 
-- `src/app/page.tsx`: main Company/Themes UI
-- `src/app/api/analyze/route.ts`: report fetch, cache normalization, analyze entrypoint
-- `src/app/api/search/route.ts`: autocomplete and private-company search routing
-- `src/app/api/themes/route.ts`: theme exploration API
-- `src/lib/agents/orchestrator.ts`: main analysis pipeline
-- `src/lib/investment-memo.ts`: recommendation, role, verdict, and memo logic
-- `src/lib/confidence.ts`: data-confidence weighting, caps, and underwriting-quality penalties
-- `src/lib/agents/challenger-agent.ts`: report-aware challenger generation and false-positive filtering
-- `src/lib/report-assembly.ts`: metrics, valuation, street view, earnings, news extraction
-- `src/lib/recent-developments.ts`: recent developments ranking and private fallback parsing
-- `src/lib/news-sentiment.ts`: deterministic finance-news sentiment scoring
-- `src/lib/nebius-memo.ts`: optional Nebius memo synthesis
-- `src/components/Report.tsx`: top-level report renderer
-- `src/components/SectionInfoTooltip.tsx`: reusable analyst-help info icon and tooltip
+- [`src/app/page.tsx`](src/app/page.tsx): main Company/Themes UI.
+- [`src/app/api/analyze/route.ts`](src/app/api/analyze/route.ts): analyze entrypoint and cache normalization.
+- [`src/lib/agents/orchestrator.ts`](src/lib/agents/orchestrator.ts): main pipeline.
+- [`src/lib/investment-memo.ts`](src/lib/investment-memo.ts): recommendation, role, memo, inference, and judgment logic.
+- [`src/lib/report-assembly.ts`](src/lib/report-assembly.ts): metrics, evidence classes, fact layer, valuation, Street view, and report panels.
+- [`src/lib/gates.ts`](src/lib/gates.ts): deterministic rendering and recommendation gates.
+- [`src/lib/reconciliation.ts`](src/lib/reconciliation.ts): source reconciliation.
+- [`src/lib/peer-engine.ts`](src/lib/peer-engine.ts): peer relevance scoring.
+- [`src/lib/driver-trees.ts`](src/lib/driver-trees.ts): archetype-specific driver requirements.
+- [`src/lib/diligence-checklist.ts`](src/lib/diligence-checklist.ts): private-company checklist.
+- [`src/lib/agents/challenger-agent.ts`](src/lib/agents/challenger-agent.ts): targeted challenger pass.
+- [`src/components/Report.tsx`](src/components/Report.tsx): evidence-led report renderer.
 
 ## Local Setup
 
-### 1. Install dependencies
+### 1. Install Dependencies
 
 ```bash
 npm install
@@ -127,22 +124,17 @@ Copy `.env.example` to `.env.local` and fill in the keys you plan to use.
 cp .env.example .env.local
 ```
 
-### 3. Recommended environment variables
-
-#### Core
+Recommended keys:
 
 - `ANTHROPIC_API_KEY`
 - `FINNHUB_API_KEY`
 - `EXA_API_KEY`
-
-#### Strongly recommended
-
+- `FMP_API_KEY`
 - `COMPANIES_HOUSE_API_KEY`
 - `SEC_EDGAR_USER_AGENT`
 
-#### Optional but useful
+Optional:
 
-- `FMP_API_KEY`
 - `NEBIUS_API_KEY`
 - `NEBIUS_BASE_URL`
 - `NEBIUS_LLM_MODEL`
@@ -152,7 +144,7 @@ cp .env.example .env.local
 - `TURSO_DATABASE_URL`
 - `TURSO_AUTH_TOKEN`
 
-### 4. Run the app
+### 3. Run The App
 
 ```bash
 npm run dev
@@ -160,7 +152,7 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-## Verification Commands
+## Verification
 
 ```bash
 npx tsc --noEmit
@@ -168,15 +160,15 @@ npm run lint
 npm run build
 ```
 
-Useful smoke tests after setup:
+Useful smoke names:
 
-- Company tab: `Apple`, `NVIDIA`, `Tesla`, `Stripe`, `SpaceX`
-- Thin private-name behavior: `Anthropic`, `OpenAI`, `xAI`
-- Themes tab: `AI inference chips`, `BNPL payments`
+- Public: `Apple`, `NVIDIA`, `Microsoft`, `Snowflake`, `Klarna`
+- Private: `Stripe`, `Anthropic`, `OpenAI`
+- UK/global: `Diageo`, `Greggs`, `Rolls-Royce`, `Compass Group`
 
 ## Refreshing Evaluation Runs
 
-Use the analyze API with `forceRefresh: true` when schema or memo logic changes and cached reports are stale.
+Use the analyze API with `forceRefresh: true` when cached reports are stale after schema or memo changes.
 
 ```bash
 npm run dev -- -p 3001
@@ -184,126 +176,22 @@ $env:ANALYZE_ENDPOINT='http://localhost:3001/api/analyze'
 node scripts/refresh-eval-after.mjs
 ```
 
-The batch runner writes fresh API responses to `eval/after/` for:
-
-- Apple
-- NVIDIA
-- Microsoft
-- Diageo
-- Compass Group
-- Klarna
-- Stripe
-- Greggs
-- Rolls-Royce
-- Snowflake
-
-If the UI shows `Analysis failed` immediately, verify the API route directly before assuming the model pipeline failed:
-
-```bash
-Invoke-WebRequest -UseBasicParsing -Method Get -Uri http://localhost:3001/api/search?q=Apple
-Invoke-WebRequest -UseBasicParsing -Method Post -Uri http://localhost:3001/api/analyze -ContentType 'application/json' -Body '{"company":"Apple"}'
-```
-
-A `404` from these API routes usually means the local Next dev server is stale or wedged. Restart `npm run dev` and retry.
-
-## Recommendation Model
-
-The app does not treat recommendation as the only output. Each report includes:
-
-- `recommendation`: `buy`, `hold`, `watch`, or `avoid`
-- `conviction`: low / medium / high
-- `role`: `Core target`, `Reference public comp`, `Private diligence`, `Watchlist candidate`, or `Entity resolution case`
-- `mandateFit`: aligned, borderline, or out of mandate
-
-This matters because a company can be high-quality but still be better treated as a benchmark or reference comp rather than a direct target.
-
-### Analyst-facing label behavior
-
-The internal recommendation enum stays stable for compatibility, but the UI can render a more analyst-friendly display label:
-
-- thin private `watch` can render as `Primary diligence required`
-- thin private `avoid` caused mainly by insufficient evidence can render as `Pass for now`
-- visible `Avoid` is reserved for cases where the read is genuinely negative beyond thin evidence
-
-## Data Confidence vs Investment Conviction
-
-The app separates the evidence question from the investment question:
-
-- `Data Confidence`: how strong the evidence base is
-  This reflects entity match, source quality, freshness, filing depth, valuation support, and underwriting-quality evidence.
-- `Investment Conviction`: how strong the actual investment case is
-  A company can have high-quality public evidence and still only merit low conviction if the upside is conditional, mandate fit is weak, or downside is hard to defend.
-
-This separation is visible in the report header and memo hero.
-
-## Notes On Public vs Private Companies
-
-### Public companies
-
-Best results come from a strong mix of:
-
-- SEC EDGAR identity and XBRL facts
-- Finnhub market and earnings data
-- FMP valuation and forward-estimate context
-
-### Private companies
-
-Private-company reports are intentionally more conservative. They often rely on:
-
-- Exa Deep structured web research
-- public estimates of revenue, funding, valuation, and investors
-- thinner primary-disclosure support
-
-That means the app can still produce a useful first-pass diligence note, but the right read is often:
-
-- interesting business, but not yet underwriteable
-- primary diligence required before conviction can increase
-- mandate fit may remain borderline or out of threshold for very early-stage names
-
-The product is designed to avoid turning thin evidence into a falsely harsh fundamental verdict.
-
-## Report UX
-
-The top of the report is meant to read like an investment note, while the lower panels preserve auditability.
-
-- top of report: recommendation, mandate fit, role, data confidence, investment conviction, recent developments, and memo
-- lower sections: supporting evidence, source attribution, confidence mechanics, Street context, entity resolution, and section support
-
-Each major section includes a small info icon with short analyst guidance on what the section means and how to interpret it.
+The batch runner writes fresh responses to `eval/after/`.
 
 ## Known Limitations
 
-- Private-company analysis can still be thin when management materials or primary disclosures are unavailable.
-- Recent developments for private companies currently come from compressed Exa research strings, so categorization can be useful but still somewhat generic.
-- Data Confidence is more conservative than earlier builds, but still depends on upstream source quality and current gap/tension detection.
-- Challenger output is materially better, but it is still model-assisted rather than fully deterministic.
-- Nebius improves memo wording, but the grounded pipeline remains the source of truth.
-- Some valuation and peer panels are much stronger when `FMP_API_KEY` is configured.
-- Peer comparison currently has a known density gap: FMP can return peer symbols and names without the full P/E, growth, margin, and EV/EBITDA grid. The next tactical fix should enrich the peer rows from FMP ratio/growth endpoints or a Finnhub basic-financials fallback before changing the display layer.
+- The app does not replace primary diligence, management calls, data-room review, channel checks, or audited financial analysis.
+- Private-company valuations are not treated as reliable pricing when there is no liquid market or primary disclosure.
+- Diligence gates can identify missing gross margin, retention, concentration, governance, and unit-economics evidence; they cannot infer those facts safely.
+- Reconciliation can flag source mismatches, but it cannot guarantee upstream vendor data is correct.
+- Peer screening improves relevance, but peer data still depends on FMP/Finnhub coverage and may be withheld.
+- The challenger is model-assisted. It can sharpen review, but it does not replace human judgment.
+- External API outages can block fresh runs or search resolution.
+- The app is built for first-pass underwriting support, not final investment approval.
 
 ## Supporting Docs
 
-- [`CLAUDE.md`](CLAUDE.md): project rules and engineering constraints
-- [`INITIAL_PROMPT.md`](INITIAL_PROMPT.md): original build prompt
-- [`tasks/handoff.md`](tasks/handoff.md): implementation and verification history
-- [`tasks/diagrams/01-complete-flow.md`](tasks/diagrams/01-complete-flow.md): end-to-end flow
-- [`tasks/diagrams/02-agent-orchestration.md`](tasks/diagrams/02-agent-orchestration.md): agent sequence
-- [`tasks/diagrams/04-agent-responsibilities.md`](tasks/diagrams/04-agent-responsibilities.md): agent specs
-- [`tasks/finance-llm-resource-review.md`](tasks/finance-llm-resource-review.md): saved notes on finance LLM ideas and tooling
-
-## Current Status
-
-This repo is beyond the original MVP scaffold. The current system includes:
-
-- multi-agent orchestration
-- theme exploration
-- public/private routing hardening
-- report-aware memo challenger flow
-- Nebius memo integration
-- recent developments and finance-news sentiment
-- analyst-style recommendation plus role classification
-- explicit data-confidence vs investment-conviction framing
-- structured thesis/scenario/kill-criteria memo fields
-- section-help tooltips for analyst UX
-
-The next high-value work is likely peer-grid enrichment, deeper private-company evidence, stronger retrieval corpora, and more analyst-grade valuation / unit-economics support.
+- [`before-after.md`](before-after.md): short examples of the output change.
+- [`refactor-plan.md`](refactor-plan.md): implementation plan for the stricter architecture.
+- [`meta-prompt.md`](meta-prompt.md): product redesign prompt.
+- [`tasks/diagrams/`](tasks/diagrams/): architecture diagrams and flow notes.

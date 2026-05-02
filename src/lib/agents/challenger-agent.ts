@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 
 import { AMAKOR_MANDATE_CONTEXT } from '@/lib/amakor-mandate';
 import type {
+  ChallengerAttack,
+  ChallengerAttackType,
   ChallengerItem,
   ChallengerReport,
   CoverageGap,
@@ -19,26 +21,22 @@ const MODEL = 'claude-haiku-4-5';
 const MAX_TOKENS = 2000;
 const TRUNCATION_WARNING_TOKEN_BUFFER = 50;
 const RESPONSE_TAIL_LENGTH = 100;
-const SYSTEM_PROMPT = `You are a skeptical senior risk analyst at Amakor Capital, a London-based growth equity firm. Your role is to stress-test investment memos against Amakor specific mandate before capital is committed.
+const ATTACK_LIMIT = 5;
+const SYSTEM_PROMPT = `You are a skeptical senior risk analyst at Amakor Capital. Your job is to break the investment memo, not to add generic risk commentary.
 
 ${AMAKOR_MANDATE_CONTEXT}
 
-For each memo, your challenges must reference Amakor mandate criteria. Specifically consider:
-- Does the company meet the revenue threshold (50M plus for growth equity, 25-200M deal size)?
-- Does it align with a specific Meta Trend category, or is the thematic fit weak?
-- Does it trigger any red flags (high capex, hardware-primary, marketing-led growth, biotech)?
-- What is the moat quality? Is growth product-led or marketing-led?
-- Could this be sourced via proactive origination or would auction dynamics cause Amakor to pass?
+Attack only the sharpest points in the memo. Prefer 4 attacks; use 5 only when valuation needs its own separate attack. Every attack must cite at least one evidence ID from the supplied evidence list.
 
-Your unstated assumptions should highlight mandate-critical assumptions. Your evidence gaps should identify missing data that Amakor would demand. Your counter-scenarios should include at least one where the mandate filter causes Amakor to pass on the deal.
+Target these attack types:
+- hidden-assumption: the main implicit assumption underneath the thesis
+- fragile-variable: the single variable whose movement most threatens the case
+- disconfirming-signal: the fastest observable signal that would falsify the thesis
+- growth-quality: whether growth is product-led, pricing-led, subsidy-led, or hype-led
+- moat-challenge: whether the moat is demonstrated in evidence or merely asserted
+- valuation-grounding: whether valuation rests on unsupported expectations
 
-Severity calibration:
-- Assumption conflicting with a red flag: HIGH severity
-- Unverified revenue for growth-equity candidate: HIGH severity
-- Missing Meta Trend alignment: HIGH severity
-- Generic market risks unrelated to mandate: MEDIUM or LOW severity
-
-Be precise, direct, and always cite which data source (or its absence) grounds your concern. Respond with ONLY valid JSON and no markdown or prose.`;
+Be willing to say "the thesis has no real support" when the evidence stack is too thin. Mark that HIGH severity when key drivers are missing or valuation rests on unsupported expectations. Respond with ONLY valid JSON and no markdown or prose.`;
 
 type ChallengerAgentInput = {
   readonly company: string;
@@ -53,6 +51,7 @@ type ChallengerAgentInput = {
 };
 
 type ChallengerPayload = {
+  readonly attacks?: unknown;
   readonly unstatedAssumptions: unknown;
   readonly evidenceGaps: unknown;
   readonly counterScenarios: unknown;
@@ -92,6 +91,61 @@ function formatDraftMemo(memo: InvestmentMemo): string {
     `Key disqualifier: ${memo.keyDisqualifier}`,
     'Key risks:',
     ...keyRisks,
+  ].join('\n');
+}
+
+function formatEvidenceAnchors(memo: InvestmentMemo): string {
+  const anchors = memo.evidenceAnchors ?? [];
+
+  if (anchors.length === 0) {
+    return '- No evidence anchors attached; if you must challenge the thesis, cite "none".';
+  }
+
+  return anchors
+    .slice(0, 24)
+    .map((anchor) => {
+      const period = anchor.period === null ? '' : ` (${anchor.period})`;
+      return `- ${anchor.id}: ${anchor.label}${period} = ${anchor.value} [${anchor.source}; ${anchor.evidenceClass ?? 'class-unknown'}]`;
+    })
+    .join('\n');
+}
+
+function formatDriverTree(memo: InvestmentMemo): string {
+  const tree = memo.driverTree;
+
+  if (tree === null || tree === undefined) {
+    return 'No driver tree attached.';
+  }
+
+  const drivers = tree.drivers.map((driver) => {
+    const evidence = driver.evidenceId === null ? 'no evidence ID' : driver.evidenceId;
+    return `- ${driver.name}: ${driver.status}; value=${driver.value ?? 'n/a'}; importance=${driver.importance}; evidence=${evidence}; note=${driver.note ?? 'n/a'}`;
+  });
+
+  return [
+    `Archetype: ${tree.archetype}`,
+    `Blocks conviction: ${tree.blocksConviction ? 'yes' : 'no'}`,
+    `Critical missing: ${tree.criticalMissing.length === 0 ? 'none' : tree.criticalMissing.join(', ')}`,
+    'Drivers:',
+    ...drivers,
+  ].join('\n');
+}
+
+function formatDiligenceChecklist(memo: InvestmentMemo): string {
+  const checklist = memo.diligenceChecklist;
+
+  if (checklist === null || checklist === undefined) {
+    return 'No private-company diligence checklist attached.';
+  }
+
+  return [
+    `Resolved: ${checklist.passCount}/${checklist.totalCount}`,
+    `Blocks thesis: ${checklist.blockThesis ? 'yes' : 'no'}`,
+    `Underwriting ready: ${checklist.underwritingReady ? 'yes' : 'no'}`,
+    ...checklist.items.map((item) => {
+      const evidence = item.evidenceId === null ? 'no evidence ID' : item.evidenceId;
+      return `- ${item.label}: ${item.status}; critical=${item.isCritical ? 'yes' : 'no'}; evidence=${evidence}; note=${item.note}`;
+    }),
   ].join('\n');
 }
 
@@ -242,37 +296,44 @@ READ TYPE: ${privateCompanyRead ? 'private-company research' : 'public/registry 
 AVAILABLE REPORT EVIDENCE:
 ${formatEvidenceContext(input)}
 
+EVIDENCE IDS YOU MAY CITE:
+${formatEvidenceAnchors(input.draftMemo)}
+
+ARCHETYPE DRIVER TREE:
+${formatDriverTree(input.draftMemo)}
+
+PRIVATE DILIGENCE CHECKLIST:
+${formatDiligenceChecklist(input.draftMemo)}
+
 Challenge calibration rules:
 - If this is a private-company research read, do NOT treat absence of SEC XBRL, Street targets, or earnings-surprise panels as evidence of business weakness by itself.
 - For private companies, focus instead on revenue visibility, funding/valuation support, customer traction, moat quality, unit economics, and mandate fit.
 - Only raise SEC, analyst-coverage, or public-market objections when the memo itself wrongly relies on those frameworks.
 - If a metric or concept is already present in the report, do NOT criticize it as completely absent. At most, say it is present but still weakly analyzed, unresolved, or insufficient for underwriting.
 - Do NOT simply restate a gap the memo already names unless you sharpen it materially.
+- Use the driver tree to attack the variables that matter for this archetype. For consumer-fintech-bnpl, focus on take rate, funding cost, loss rate, unit economics, regulatory capital, and subsidy-led growth. For ai-infrastructure, focus on capex sustainability, customer concentration, gross margin durability, inference economics, and CUDA/platform moat.
 - Prefer fewer, stronger challenges. Avoid repetitive template criticism.
 
-Your task: identify exactly -
-- 2 unstated assumptions embedded in the memo's thesis or recommendation
-- 2 evidence gaps the memo understates or ignores
-- 2 counter-scenarios in which the bear case materialises
+Your task: return 4 or 5 attacks. Choose from these attack types:
+- hidden-assumption
+- fragile-variable
+- disconfirming-signal
+- growth-quality
+- moat-challenge
+- valuation-grounding
 
-For each item provide:
-- claim: one sentence
+For each attack provide:
+- attackType: one of the allowed attack types
+- claim: one specific, falsifiable sentence
 - severity: "high" | "medium" | "low"
-- citedSource: the relevant source name, or "none" if the concern is about absence of data
+- citedSource: at least one evidence ID from the supplied evidence list; use "none" only if no evidence IDs were supplied
+- counterMeasure: the evidence that would neutralize this attack, or null
 
 Respond ONLY with valid JSON matching this exact schema (no markdown fences, no commentary):
 {
-  "unstatedAssumptions": [
-    {"claim": "...", "severity": "...", "citedSource": "..."},
-    {"claim": "...", "severity": "...", "citedSource": "..."}
-  ],
-  "evidenceGaps": [
-    {"claim": "...", "severity": "...", "citedSource": "..."},
-    {"claim": "...", "severity": "...", "citedSource": "..."}
-  ],
-  "counterScenarios": [
-    {"claim": "...", "severity": "...", "citedSource": "..."},
-    {"claim": "...", "severity": "...", "citedSource": "..."}
+  "attacks": [
+    {"attackType": "hidden-assumption", "claim": "...", "severity": "...", "citedSource": "evidence-id", "counterMeasure": "..."},
+    {"attackType": "fragile-variable", "claim": "...", "severity": "...", "citedSource": "evidence-id", "counterMeasure": "..."}
   ]
 }`;
 }
@@ -285,6 +346,138 @@ function coerceSeverity(value: unknown): ValidationSeverity {
   return value === 'high' || value === 'medium' || value === 'low'
     ? value
     : 'medium';
+}
+
+function coerceAttackType(value: unknown): ChallengerAttackType {
+  return value === 'hidden-assumption' ||
+    value === 'fragile-variable' ||
+    value === 'disconfirming-signal' ||
+    value === 'growth-quality' ||
+    value === 'moat-challenge' ||
+    value === 'valuation-grounding'
+    ? value
+    : 'hidden-assumption';
+}
+
+function firstEvidenceId(input: ChallengerAgentInput): string {
+  return input.draftMemo.evidenceAnchors?.[0]?.id ?? 'none';
+}
+
+function evidenceIds(input: ChallengerAgentInput): readonly string[] {
+  return (input.draftMemo.evidenceAnchors ?? []).map((anchor) => anchor.id);
+}
+
+function normalizeCitedSource(value: unknown, input: ChallengerAgentInput): string {
+  const raw =
+    typeof value === 'string' && value.trim().length > 0
+      ? value.trim()
+      : firstEvidenceId(input);
+  const ids = evidenceIds(input);
+
+  if (ids.length === 0) {
+    return raw;
+  }
+
+  const citedIds = ids.filter((id) => raw.includes(id));
+  if (citedIds.length > 0) {
+    return citedIds.join(', ');
+  }
+
+  return ids[0] ?? 'none';
+}
+
+function normalizeAttacks(
+  value: unknown,
+  input: ChallengerAgentInput,
+): readonly ChallengerAttack[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!isRecord(item)) {
+        return null;
+      }
+
+      const rawClaim =
+        typeof item.claim === 'string'
+          ? item.claim
+          : typeof item.description === 'string'
+            ? item.description
+            : null;
+
+      if (rawClaim === null) {
+        return null;
+      }
+
+      const claim = rawClaim.trim();
+
+      if (claim.length === 0) {
+        return null;
+      }
+
+      const counterMeasure =
+        typeof item.counterMeasure === 'string'
+          ? item.counterMeasure.trim()
+          : typeof item.counter_measure === 'string'
+            ? item.counter_measure.trim()
+            : null;
+
+      return {
+        attackType: coerceAttackType(item.attackType ?? item.attack_type),
+        claim,
+        severity: coerceSeverity(
+          'severity' in item
+            ? item.severity
+            : 'level' in item
+              ? item.level
+              : null
+        ),
+        citedSource: normalizeCitedSource(
+          item.citedSource ?? item.cited_source ?? item.source,
+          input,
+        ),
+        counterMeasure:
+          counterMeasure !== null && counterMeasure.length > 0
+            ? counterMeasure
+            : null,
+      } satisfies ChallengerAttack;
+    })
+    .filter((item): item is ChallengerAttack => item !== null)
+    .slice(0, ATTACK_LIMIT);
+}
+
+function mapAttacksToLegacySchema(attacks: readonly ChallengerAttack[]): {
+  readonly unstatedAssumptions: readonly ChallengerItem[];
+  readonly evidenceGaps: readonly ChallengerItem[];
+  readonly counterScenarios: readonly ChallengerItem[];
+} {
+  const toItem = (attack: ChallengerAttack): ChallengerItem => ({
+    claim: attack.claim,
+    severity: attack.severity,
+    citedSource: attack.citedSource,
+  });
+  return {
+    unstatedAssumptions: attacks
+      .filter((attack) => attack.attackType === 'hidden-assumption')
+      .map(toItem),
+    evidenceGaps: attacks
+      .filter(
+        (attack) =>
+          attack.attackType === 'fragile-variable' ||
+          attack.attackType === 'valuation-grounding' ||
+          attack.attackType === 'moat-challenge',
+      )
+      .map(toItem),
+    counterScenarios: attacks
+      .filter(
+        (attack) =>
+          attack.attackType === 'disconfirming-signal' ||
+          attack.attackType === 'growth-quality',
+      )
+      .map(toItem),
+  };
 }
 
 function normalizeItems(
@@ -543,10 +736,20 @@ function repairTruncatedJsonCandidate(candidate: string): string | null {
 function getPayloadFromRecord(
   value: Record<string, unknown>
 ): ChallengerPayload | null {
+  const attacks = value.attacks;
   const unstatedAssumptions =
     value.unstatedAssumptions ?? value.unstated_assumptions;
   const evidenceGaps = value.evidenceGaps ?? value.evidence_gaps;
   const counterScenarios = value.counterScenarios ?? value.counter_scenarios;
+
+  if (Array.isArray(attacks)) {
+    return {
+      attacks,
+      unstatedAssumptions: [],
+      evidenceGaps: [],
+      counterScenarios: [],
+    };
+  }
 
   if (
     !Array.isArray(unstatedAssumptions) ||
@@ -557,6 +760,7 @@ function getPayloadFromRecord(
   }
 
   return {
+    attacks: undefined,
     unstatedAssumptions,
     evidenceGaps,
     counterScenarios,
@@ -694,8 +898,29 @@ function createChallengerReport(
   input: ChallengerAgentInput
 ): ChallengerReport {
   const evidence = buildEvidenceContext(input);
+  const attacks = normalizeAttacks(payload.attacks, input);
+
+  if (attacks.length > 0) {
+    const legacy = mapAttacksToLegacySchema(attacks);
+
+    return {
+      attacks,
+      unstatedAssumptions: dedupeChallengerItems(
+        legacy.unstatedAssumptions.filter(
+          (item) => !shouldDropFalsePositiveClaim(item.claim, evidence)
+        )
+      ),
+      evidenceGaps: dedupeChallengerItems(
+        legacy.evidenceGaps.filter(
+          (item) => !shouldDropFalsePositiveClaim(item.claim, evidence)
+        )
+      ),
+      counterScenarios: dedupeChallengerItems(legacy.counterScenarios),
+    };
+  }
 
   return {
+    attacks: null,
     unstatedAssumptions: dedupeChallengerItems(
       normalizeItems(payload.unstatedAssumptions, 2).filter(
         (item) => !shouldDropFalsePositiveClaim(item.claim, evidence)
@@ -714,7 +939,7 @@ function createChallengerReport(
 
 function logParsedCounts(report: ChallengerReport): void {
   console.info(
-    `[challenger-agent] parsed ${report.unstatedAssumptions.length} unstatedAssumptions, ${report.evidenceGaps.length} evidenceGaps, ${report.counterScenarios.length} counterScenarios`
+    `[challenger-agent] parsed ${report.attacks?.length ?? 0} attacks, ${report.unstatedAssumptions.length} unstatedAssumptions, ${report.evidenceGaps.length} evidenceGaps, ${report.counterScenarios.length} counterScenarios`
   );
 }
 
@@ -806,6 +1031,7 @@ function emptyChallengerReport(): ChallengerReport {
     unstatedAssumptions: [],
     evidenceGaps: [],
     counterScenarios: [],
+    attacks: [],
   };
 }
 
@@ -869,6 +1095,7 @@ export async function runChallengerAgent(
     console.info('[challenger-agent] succeeded', {
       company: input.company,
       model: MODEL,
+      attackCount: parsed?.attacks?.length ?? 0,
       assumptionCount: parsed?.unstatedAssumptions.length ?? 0,
       gapCount: parsed?.evidenceGaps.length ?? 0,
       scenarioCount: parsed?.counterScenarios.length ?? 0,

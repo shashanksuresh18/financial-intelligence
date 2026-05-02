@@ -1,4 +1,4 @@
-import type { StreetView } from "@/lib/types";
+import type { EvidenceClass, StreetView } from "@/lib/types";
 
 import SectionInfoTooltip from "./SectionInfoTooltip";
 
@@ -26,6 +26,32 @@ function formatPercent(value: number | null): string {
   }
 
   return `${value.toFixed(1)}%`;
+}
+
+const EVIDENCE_CLASS_LABELS: Record<EvidenceClass, string> = {
+  "primary-filing": "Primary filing",
+  registry: "Registry",
+  "market-data-vendor": "Market data",
+  "analyst-consensus": "Analyst consensus",
+  "news-reporting": "News",
+  "synthesized-web": "Synthesized web",
+  "model-inference": "Model inference",
+};
+
+function EvidenceClassBadge({
+  evidenceClass,
+}: {
+  readonly evidenceClass: EvidenceClass | null | undefined;
+}) {
+  if (evidenceClass === null || evidenceClass === undefined) {
+    return null;
+  }
+
+  return (
+    <span className="rounded-full border border-zinc-700 bg-zinc-950/70 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-zinc-300">
+      {EVIDENCE_CLASS_LABELS[evidenceClass]}
+    </span>
+  );
 }
 
 export function StreetViewPanel({
@@ -71,9 +97,14 @@ export function StreetViewPanel({
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-            Consensus rating
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
+              Consensus rating
+            </p>
+            <EvidenceClassBadge
+              evidenceClass={streetView.latest?.evidenceClass ?? "analyst-consensus"}
+            />
+          </div>
           <p className="mt-2 text-2xl font-semibold text-zinc-50">
             {streetView.consensusRating ?? "Unavailable"}
           </p>
@@ -83,9 +114,14 @@ export function StreetViewPanel({
         </div>
 
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
-          <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-            Mean target
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
+              Mean target
+            </p>
+            <EvidenceClassBadge
+              evidenceClass={streetView.priceTarget?.evidenceClass ?? "analyst-consensus"}
+            />
+          </div>
           <p className="mt-2 text-2xl font-semibold text-zinc-50">
             {formatCurrency(streetView.priceTarget?.targetMean ?? null)}
           </p>
@@ -103,19 +139,28 @@ export function StreetViewPanel({
       {streetView.latest !== null ? (
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Bullish</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Bullish</p>
+              <EvidenceClassBadge evidenceClass={streetView.latest.evidenceClass} />
+            </div>
             <p className="mt-2 text-xl font-semibold text-emerald-200">
               {streetView.latest.bullish}
             </p>
           </div>
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Hold</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Hold</p>
+              <EvidenceClassBadge evidenceClass={streetView.latest.evidenceClass} />
+            </div>
             <p className="mt-2 text-xl font-semibold text-amber-200">
               {streetView.latest.neutral}
             </p>
           </div>
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Bearish</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Bearish</p>
+              <EvidenceClassBadge evidenceClass={streetView.latest.evidenceClass} />
+            </div>
             <p className="mt-2 text-xl font-semibold text-rose-200">
               {streetView.latest.bearish}
             </p>
@@ -125,6 +170,9 @@ export function StreetViewPanel({
 
       {streetView.priceTarget !== null ? (
         <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/70 p-4 text-sm text-zinc-400">
+          <div className="mb-2">
+            <EvidenceClassBadge evidenceClass={streetView.priceTarget.evidenceClass} />
+          </div>
           Target range {formatCurrency(streetView.priceTarget.targetLow)} to{" "}
           {formatCurrency(streetView.priceTarget.targetHigh)}; median{" "}
           {formatCurrency(streetView.priceTarget.targetMedian)}.
@@ -133,6 +181,9 @@ export function StreetViewPanel({
 
       {streetView.previous !== null ? (
         <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/70 p-4 text-sm text-zinc-400">
+          <div className="mb-2">
+            <EvidenceClassBadge evidenceClass={streetView.previous.evidenceClass} />
+          </div>
           Prior period {streetView.previous.period}: {streetView.previous.bullish} bullish /{" "}
           {streetView.previous.neutral} hold / {streetView.previous.bearish} bearish.
         </div>

@@ -613,11 +613,14 @@ export default function Home(): JSX.Element {
     <div className="fi-dropdown-enter absolute inset-x-0 z-20 mt-3 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.95)] backdrop-blur">
       {showSearchResults ? (
         <ul>
-          {searchResults.map((result) => {
+          {searchResults.map((result, index) => {
             const badges = getResultBadges(result);
 
             return (
-              <li className="border-b border-zinc-800/80 last:border-b-0" key={result.id}>
+              <li
+                className="border-b border-zinc-800/80 last:border-b-0"
+                key={`${result.id}-${result.source}-${result.ticker ?? "no-ticker"}-${index}`}
+              >
                 <div className="flex items-center justify-between gap-4 px-3 py-3">
                   <button
                     className="fi-focus-ring fi-interactive min-w-0 flex-1 rounded-xl border-l-2 border-transparent px-3 py-2 text-left hover:border-emerald-400 hover:bg-emerald-400/10"

@@ -1,0 +1,87 @@
+flowchart LR
+    subgraph DATA_SOURCES["🔌 DATA SOURCES"]
+        D1["Finnhub"]
+        D2["FMP"]
+        D3["SEC EDGAR"]
+        D4["Companies House"]
+        D5["GLEIF"]
+        D6["Exa Deep"]
+        D7["Claude Fallback"]
+    end
+
+    subgraph AGENTS_COMPANIES["🤖 COMPANY AGENTS"]
+        A1["Market Data Agent<br/>️runWaterfall"]
+        A2["Entity Agent<br/>buildEntityResolution"]
+        A3["Validation Agent<br/>validateWaterfall"]
+        A4["Memo Agent<br/>runMemoAgent"]
+        A5["Challenger Agent<br/>runChallengerAgent"]
+    end
+
+    subgraph AGENTS_THEMES["🤖 THEME AGENTS"]
+        B1["Theme Agent<br/>exploreTheme"]
+    end
+
+    subgraph REPORT_COMPONENTS["📋 REPORT COMPONENTS"]
+        R1["Financial Metrics"]
+        R2["Street View"]
+        R3["Valuation View"]
+        R4["Peer Comparison"]
+        R5["Analyst Consensus"]
+        R6["Earnings/Insider"]
+        R7["News Sentiment"]
+        R8["Evidence Signals"]
+        R9["Coverage Gaps"]
+        R10["Section Audit"]
+    end
+
+    subgraph OUTPUT["📊 OUTPUT"]
+        O1["AnalysisReport"]
+        O2["ThemeResult"]
+        O3["Dashboard UI"]
+    end
+
+    D1 --> A1
+    D2 --> A1
+    D3 --> A1
+    D4 --> A1
+    D5 --> A1
+    D6 --> A1
+    D7 --> A1
+
+    A1 -->|WaterfallResult| A2
+    A1 -->|WaterfallResult| A3
+    A1 -->|WaterfallResult| R1
+    A1 -->|WaterfallResult| R2
+    A1 -->|WaterfallResult| R3
+    A1 -->|WaterfallResult| R4
+    A1 -->|WaterfallResult| R5
+    A1 -->|WaterfallResult| R6
+    A1 -->|WaterfallResult| R7
+    A1 -->|WaterfallResult| R8
+    A1 -->|WaterfallResult| R9
+    A1 -->|WaterfallResult| R10
+
+    A2 -->|EntityResolution| A4
+    A3 -->|ValidationReport| A4
+    R1 --> A4
+    R2 --> A4
+    R3 --> A4
+
+    A4 -->|Draft Memo| A5
+    A5 -->|Challenger Report| A4
+    A4 -->|Final Memo| O1
+
+    A2 --> O1
+    A1 --> O1
+    A3 --> O1
+
+    B1 --> O2
+
+    O1 --> O3
+    O2 --> O3
+
+    style AGENTS_COMPANIES fill:#E3F2FD
+    style AGENTS_THEMES fill:#F3E5F5
+    style DATA_SOURCES fill:#E8F5E9
+    style REPORT_COMPONENTS fill:#FFF3E0
+    style OUTPUT fill:#FCE4EC

@@ -1,9 +1,11 @@
-import type { ValuationView } from "@/lib/types";
+import type { ReconciliationStatus, ValuationView, WithheldSection } from "@/lib/types";
 
 import SectionInfoTooltip from "./SectionInfoTooltip";
 
 type ValuationOverviewPanelProps = {
   readonly valuationView: ValuationView | null;
+  readonly reconciliationStatus: ReconciliationStatus;
+  readonly withheldSections?: readonly WithheldSection[];
 };
 
 const CURRENCY_FORMATTER = new Intl.NumberFormat("en-US", {
@@ -32,7 +34,9 @@ function formatCompactCurrency(value: number | null): string {
 }
 
 export function ValuationOverviewPanel({
+  reconciliationStatus,
   valuationView,
+  withheldSections = [],
 }: ValuationOverviewPanelProps) {
   if (valuationView === null) {
     return (
@@ -62,6 +66,19 @@ export function ValuationOverviewPanel({
       metric.historicalHigh !== null ||
       metric.forward !== null,
   );
+  const unresolvedChecks = reconciliationStatus.checks.filter(
+    (check) => check.status === "unresolved",
+  );
+  const partialChecks = reconciliationStatus.checks.filter(
+    (check) => check.status === "partial",
+  );
+  const warningTone =
+    reconciliationStatus.overall === "failed"
+      ? "border-rose-400/25 bg-rose-950/35 text-rose-100"
+      : "border-amber-400/25 bg-amber-950/30 text-amber-100";
+  const pricedInWithheld = withheldSections.find(
+    (section) => section.section === "priced-in-analysis",
+  );
 
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
@@ -80,6 +97,39 @@ export function ValuationOverviewPanel({
           available.
         </p>
       </div>
+
+      {reconciliationStatus.overall !== "clean" ? (
+        <div className={`mb-4 rounded-xl border px-4 py-3 text-sm leading-6 ${warningTone}`}>
+          <p className="font-medium">
+            {reconciliationStatus.overall === "failed"
+              ? "Valuation inputs from multiple sources are unreconciled — figures shown may be inconsistent."
+              : "Valuation inputs are partially reconciled — review source checks before relying on the frame."}
+          </p>
+          {pricedInWithheld ? (
+            <p className="mt-1">
+              {pricedInWithheld.userMessage}
+            </p>
+          ) : null}
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs uppercase tracking-[0.18em]">
+              Source Reconciliation
+            </summary>
+            <ul className="mt-2 space-y-2">
+              {[...unresolvedChecks, ...partialChecks].map((check) => (
+                <li key={`${check.field}-${check.status}`}>
+                  <span className="font-medium">{check.field}:</span> {check.note}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      ) : null}
+
+      {reconciliationStatus.overall === "clean" && pricedInWithheld ? (
+        <p className="mb-4 rounded-xl border border-amber-400/25 bg-amber-950/30 px-4 py-3 text-sm leading-6 text-amber-100">
+          {pricedInWithheld.userMessage}
+        </p>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
