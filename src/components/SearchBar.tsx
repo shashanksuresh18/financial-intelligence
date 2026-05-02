@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChangeEvent, FormEvent } from "react";
+import { useRef, type ChangeEvent, type FormEvent } from "react";
 
 type SearchBarProps = {
   readonly action?: string;
@@ -23,8 +23,22 @@ export function SearchBar({
   disabled = false,
   isSearching = false,
 }: SearchBarProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const showClearButton =
+    !disabled &&
+    typeof value === "string" &&
+    value.length > 0 &&
+    typeof onSearch === "function";
+
   const handleChange = (event: ChangeEvent<HTMLInputElement>): void => {
     onSearch?.(event.target.value);
+  };
+
+  const handleClear = (): void => {
+    onSearch?.("");
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
@@ -78,10 +92,37 @@ export function SearchBar({
         name="q"
         onChange={onSearch ? handleChange : undefined}
         placeholder={placeholder}
+        ref={inputRef}
         spellCheck={false}
-        type="search"
+        type="text"
         {...(value === undefined ? { defaultValue } : { value })}
       />
+
+      {showClearButton ? (
+        <button
+          aria-label="Clear search"
+          className="fi-focus-ring fi-interactive flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200"
+          onClick={handleClear}
+          onMouseDown={(event) => {
+            event.preventDefault();
+          }}
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      ) : null}
 
       <button
         aria-label="Search company"
