@@ -298,6 +298,8 @@ export type BusinessModelTag =
 
 export type CompanyArchetype =
   | 'consumer-fintech-bnpl'
+  | 'payments-fintech'
+  | 'consumer-staples'
   | 'software-saas'
   | 'ai-infrastructure'
   | 'mega-cap-platform'
@@ -323,6 +325,7 @@ export type DriverTree = {
   readonly archetype: CompanyArchetype;
   readonly drivers: readonly DriverMetric[];
   readonly criticalMissing: readonly string[];
+  readonly importantMissing: readonly string[];
   readonly blocksConviction: boolean;
 };
 

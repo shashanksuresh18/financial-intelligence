@@ -37,6 +37,32 @@ const CONSUMER_FINTECH_BNPL: ArchetypeDefinition = {
   ],
 };
 
+const PAYMENTS_FINTECH: ArchetypeDefinition = {
+  archetype: "payments-fintech",
+  drivers: [
+    { name: "TPV / Transaction Volume", importance: "critical", metricLabels: ["TPV", "Transaction Volume", "Payment Volume", "Total Payment Volume", "GMV"] },
+    { name: "Take Rate", importance: "critical", metricLabels: ["Take Rate", "Net Take Rate"] },
+    { name: "Gross Margin", importance: "critical", metricLabels: ["Gross Margin"] },
+    { name: "Merchant / Customer Growth", importance: "important", metricLabels: ["Active Merchants", "Customers", "Customer Growth"] },
+    { name: "Transaction Loss / Fraud Rate", importance: "important", metricLabels: ["Fraud Rate", "Transaction Loss Rate", "Loss Rate"] },
+    { name: "Geographic Mix", importance: "important", metricLabels: ["Geographic Mix", "International Revenue", "Regional Mix"] },
+    { name: "Regulatory Exposure", importance: "important", metricLabels: ["Regulatory Exposure", "Compliance Cost", "Regulatory Capital"] },
+    { name: "Operating Leverage", importance: "supplementary", metricLabels: ["Operating Margin", "EBITDA Margin", "Opex Ratio"] },
+  ],
+};
+
+const CONSUMER_STAPLES: ArchetypeDefinition = {
+  archetype: "consumer-staples",
+  drivers: [
+    { name: "Organic Sales / Revenue Growth", importance: "critical", metricLabels: ["Organic Sales Growth", "Revenue Growth", "Organic Revenue Growth"] },
+    { name: "Gross Margin", importance: "critical", metricLabels: ["Gross Margin"] },
+    { name: "Operating / EBITDA Margin", importance: "important", metricLabels: ["Operating Margin", "EBITDA Margin"] },
+    { name: "Volume / Price / Mix", importance: "important", metricLabels: ["Volume Growth", "Price / Mix", "Price Mix"] },
+    { name: "Geographic Mix", importance: "important", metricLabels: ["Geographic Mix", "Regional Mix", "Emerging Markets Revenue"] },
+    { name: "FX / Excise Exposure", importance: "supplementary", metricLabels: ["FX Impact", "Excise Duty", "Regulatory Exposure"] },
+  ],
+};
+
 const SOFTWARE_SAAS: ArchetypeDefinition = {
   archetype: "software-saas",
   drivers: [
@@ -63,7 +89,7 @@ const AI_INFRASTRUCTURE: ArchetypeDefinition = {
 const MEGA_CAP_PLATFORM: ArchetypeDefinition = {
   archetype: "mega-cap-platform",
   drivers: [
-    { name: "Segment Revenue Mix", importance: "critical", metricLabels: ["Segment Revenue", "Services Revenue", "Product Revenue"] },
+    { name: "Segment Revenue Mix", importance: "important", metricLabels: ["Segment Revenue", "Services Revenue", "Product Revenue"] },
     { name: "CapEx Intensity", importance: "critical", metricLabels: ["CapEx / Revenue", "Capital Expenditure"] },
     { name: "Services Margin", importance: "important", metricLabels: ["Services Margin", "Gross Margin"] },
     { name: "Buyback Yield", importance: "important", metricLabels: ["Buyback Yield", "Share Repurchase"] },
@@ -134,6 +160,8 @@ const OTHER_GENERIC: ArchetypeDefinition = {
 
 const ARCHETYPE_DEFINITIONS: Record<CompanyArchetype, ArchetypeDefinition> = {
   "consumer-fintech-bnpl": CONSUMER_FINTECH_BNPL,
+  "payments-fintech": PAYMENTS_FINTECH,
+  "consumer-staples": CONSUMER_STAPLES,
   "software-saas": SOFTWARE_SAAS,
   "ai-infrastructure": AI_INFRASTRUCTURE,
   "mega-cap-platform": MEGA_CAP_PLATFORM,
@@ -156,6 +184,8 @@ const KNOWN_COMPANY_OVERRIDES: Record<string, CompanyArchetype> = {
   nvidia: "ai-infrastructure",
   anthropic: "ai-infrastructure",
   openai: "ai-infrastructure",
+  xai: "ai-infrastructure",
+  "x.ai": "ai-infrastructure",
   apple: "mega-cap-platform",
   microsoft: "mega-cap-platform",
   alphabet: "mega-cap-platform",
@@ -167,11 +197,14 @@ const KNOWN_COMPANY_OVERRIDES: Record<string, CompanyArchetype> = {
   "marks and spencer": "uk-retail-lfl",
   "marks & spencer": "uk-retail-lfl",
   sainsbury: "uk-retail-lfl",
-  diageo: "uk-retail-lfl",
-  tesla: "ai-infrastructure",
-  stripe: "consumer-fintech-bnpl",
+  diageo: "consumer-staples",
+  "compass group": "industrial-b2b",
+  "rolls-royce": "industrial-b2b",
+  "rolls royce": "industrial-b2b",
+  tesla: "other",
+  stripe: "payments-fintech",
   spacex: "private-growth",
-  "deutsche bank": "industrial-b2b",
+  "deutsche bank": "other",
 };
 
 // ---------------------------------------------------------------------------
@@ -199,8 +232,6 @@ function archetypeFromSicCode(sic: string): CompanyArchetype | null {
   // Communication equipment
   if (code === 3669 || code === 3663) return "ai-infrastructure";
 
-  // Security brokers / finance services
-  if (code >= 6100 && code <= 6199) return "consumer-fintech-bnpl";
   // Short-term credit institutions
   if (code === 6153 || code === 6159) return "consumer-fintech-bnpl";
   // National commercial banks / state banks
@@ -208,6 +239,8 @@ function archetypeFromSicCode(sic: string): CompanyArchetype | null {
 
   // Industrial machinery
   if (code >= 3500 && code <= 3599) return "industrial-b2b";
+  // Beverage / spirits manufacturing
+  if (code >= 2080 && code <= 2085) return "consumer-staples";
   // Heavy construction
   if (code >= 1500 && code <= 1799) return "industrial-b2b";
   // Primary metals
@@ -225,13 +258,13 @@ function archetypeFromBusinessModelTag(tag: string | null | undefined): CompanyA
 
   const map: Record<string, CompanyArchetype> = {
     "bnpl-fintech": "consumer-fintech-bnpl",
-    "payments-fintech": "consumer-fintech-bnpl",
+    "payments-fintech": "payments-fintech",
     "saas-subscription": "software-saas",
     "saas-consumption": "software-saas",
     "ai-infrastructure": "ai-infrastructure",
     "mega-cap-benchmark": "mega-cap-platform",
     "uk-retail-lfl": "uk-retail-lfl",
-    "uk-staples": "uk-retail-lfl",
+    "uk-staples": "consumer-staples",
     "industrial-b2b": "industrial-b2b",
     "outsourcing-services": "industrial-b2b",
     "private-early": "private-early-stage",
@@ -260,6 +293,17 @@ function archetypeFromKeywords(overview: string | null): CompanyArchetype | null
   }
 
   if (
+    (text.includes("payments") ||
+      text.includes("payment infrastructure") ||
+      text.includes("merchant acquiring") ||
+      text.includes("checkout") ||
+      text.includes("wallet")) &&
+    (text.includes("fintech") || text.includes("merchant") || text.includes("transaction"))
+  ) {
+    return "payments-fintech";
+  }
+
+  if (
     (text.includes("saas") || text.includes("software-as-a-service")) &&
     (text.includes("recurring") || text.includes("subscription") || text.includes("arr"))
   ) {
@@ -275,6 +319,10 @@ function archetypeFromKeywords(overview: string | null): CompanyArchetype | null
 
   if (text.includes("retail") && (text.includes("store") || text.includes("shop") || text.includes("outlet"))) {
     return "uk-retail-lfl";
+  }
+
+  if (/\bspirits?\b|\bbeverage\b|\bconsumer staples\b|\bconsumer goods\b/.test(text)) {
+    return "consumer-staples";
   }
 
   if (text.includes("turnaround") || text.includes("restructuring")) {
@@ -331,7 +379,11 @@ export function classifyArchetype(
   const fromKeywords = archetypeFromKeywords(exaOverview);
   if (fromKeywords !== null) return fromKeywords;
 
-  // 6. Private company heuristic
+  // 6. Private-company fallback.
+  // WaterfallResult does not currently carry GICS sub-industry. When a
+  // private-like company has no hardcode, SIC, business-model tag, or clear
+  // keyword signal, use the generic private-growth tree instead of forcing a
+  // more specific archetype.
   const isPrivate =
     waterfallResult.finnhub === null &&
     waterfallResult.fmp === null &&
@@ -339,12 +391,7 @@ export function classifyArchetype(
     (waterfallResult.exaDeep !== null || waterfallResult.claudeFallback !== null);
 
   if (isPrivate) {
-    const estimatedRevenue = metrics.find((m) => m.label === "Estimated Revenue");
-    const hasFunding = waterfallResult.exaDeep?.data.fundingTotal !== null;
-    if (estimatedRevenue !== null && estimatedRevenue !== undefined && hasFunding) {
-      return "private-growth";
-    }
-    return "private-early-stage";
+    return "private-growth";
   }
 
   return "other";
@@ -441,7 +488,9 @@ function resolveDriverStatus(
     importance: definition.importance,
     note: definition.importance === "critical"
       ? "Missing — required before conviction"
-      : null,
+      : definition.importance === "important"
+        ? "Missing - limits conviction upgrade"
+        : null,
   };
 }
 
@@ -457,11 +506,15 @@ export function buildDriverTree(
   const criticalMissing = drivers
     .filter((d) => d.importance === "critical" && d.status === "missing")
     .map((d) => d.name);
+  const importantMissing = drivers
+    .filter((d) => d.importance === "important" && d.status === "missing")
+    .map((d) => d.name);
 
   return {
     archetype,
     drivers,
     criticalMissing,
+    importantMissing,
     blocksConviction: criticalMissing.length > 0,
   };
 }
@@ -470,6 +523,8 @@ export function buildDriverTree(
 export function archetypeLabel(archetype: CompanyArchetype): string {
   const labels: Record<CompanyArchetype, string> = {
     "consumer-fintech-bnpl": "Consumer Fintech / BNPL",
+    "payments-fintech": "Payments Fintech",
+    "consumer-staples": "Consumer Staples / Beverages",
     "software-saas": "Software / SaaS",
     "ai-infrastructure": "AI Infrastructure",
     "mega-cap-platform": "Mega-Cap Platform",

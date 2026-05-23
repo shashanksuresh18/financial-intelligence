@@ -34,6 +34,7 @@ import type {
   EvidenceSignal,
   FinancialMetric,
   InvestmentMemo,
+  InvestmentRole,
   InvestmentScenario,
   KillCriterion,
   MandateRationale,
@@ -294,6 +295,26 @@ function downgradeConviction(level: ConfidenceLevel): ConfidenceLevel {
   }
 
   return "low";
+}
+
+function downgradeForImportantDriverGaps(level: ConfidenceLevel): ConfidenceLevel {
+  if (level === "high") {
+    return "medium";
+  }
+
+  return level;
+}
+
+function shouldDowngradeForChallenger(
+  role: InvestmentRole,
+  highSeverityCount: number,
+  mediumSeverityCount: number,
+): boolean {
+  if (role === "Reference public comp") {
+    return false;
+  }
+
+  return highSeverityCount > 0 || mediumSeverityCount >= 3;
 }
 
 function challengerGapsFromReport(
@@ -904,6 +925,118 @@ function sanitizeThesisDrivers(
   }));
 }
 
+function buildFallbackThesisDrivers(
+  memo: InvestmentMemo,
+  anchors: readonly EvidenceAnchor[],
+  driverTree: DriverTree,
+): readonly ThesisDriver[] | null {
+  const fallbackId = anchors[0]?.id ?? null;
+  if (fallbackId === null) {
+    return null;
+  }
+
+  const candidates = [
+    ...memo.logic.supportingReasons,
+    ...memo.whyNow,
+    ...memo.logic.confidenceLimitingReasons,
+  ]
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  const uniqueCandidates = Array.from(new Set(candidates)).slice(0, 3);
+
+  const drivers: ThesisDriver[] = uniqueCandidates.map((item) => ({
+    claim: item,
+    interpretation:
+      "This is a deterministic fallback thesis driver because model synthesis did not return a structured driver for this evidence set.",
+    evidenceId: fallbackId,
+    confidence: memo.conviction === "high" ? "medium" : memo.conviction,
+    currentlyHolds: true,
+    ifFails: "Conviction should stay capped until this driver is supported by stronger source evidence.",
+  }));
+
+  if (driverTree.criticalMissing.length > 0) {
+    drivers.push({
+      claim: `Critical ${archetypeLabel(driverTree.archetype)} drivers remain unresolved: ${driverTree.criticalMissing.join(", ")}.`,
+      interpretation:
+        "The memo can still identify the diligence question, but conviction cannot move up until these operating drivers are evidenced.",
+      evidenceId: fallbackId,
+      confidence: "low",
+      currentlyHolds: true,
+      ifFails: "If primary evidence fills these gaps, the memo can revisit conviction and scenario range.",
+    });
+  }
+
+  return drivers.length > 0 ? drivers.slice(0, 5) : null;
+}
+
+function fallbackAssumptions(
+  primary: readonly string[],
+  fallback: string,
+): readonly string[] {
+  const assumptions = primary
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .slice(0, 2);
+
+  if (assumptions.length >= 2) {
+    return assumptions;
+  }
+
+  return [
+    ...assumptions,
+    fallback,
+    "The case requires stronger evidence before it can support a numerical scenario range.",
+  ].slice(0, 2);
+}
+
+function buildFallbackScenario(
+  memo: InvestmentMemo,
+  direction: "bull" | "bear",
+  qualitativeOnly: boolean,
+): InvestmentScenario {
+  const isBull = direction === "bull";
+
+  return {
+    scenario: isBull
+      ? "Evidence improves enough to support a higher-conviction case."
+      : "Evidence gaps persist or the weakest operating driver deteriorates.",
+    assumptions: fallbackAssumptions(
+      isBull ? memo.whatImprovesConfidence : memo.whatReducesConfidence,
+      isBull ? memo.upsideCase : memo.downsideCase,
+    ),
+    quantifiedOutcome: qualitativeOnly
+      ? "Qualitative case only; quantified range withheld because key assumptions are unverified."
+      : isBull
+        ? memo.upsideCase
+        : memo.downsideCase,
+    impliedMultiple: null,
+    probabilityHint: qualitativeOnly
+      ? "Not probability-weighted until the evidence gate clears."
+      : "Not probability-weighted; deterministic fallback because model synthesis did not return a scenario.",
+  };
+}
+
+function applyScenarioRangeGate(
+  scenario: InvestmentScenario | null,
+  memo: InvestmentMemo,
+  direction: "bull" | "bear",
+  qualitativeOnly: boolean,
+): InvestmentScenario {
+  const base = scenario ?? buildFallbackScenario(memo, direction, qualitativeOnly);
+
+  if (!qualitativeOnly) {
+    return base;
+  }
+
+  return {
+    ...base,
+    quantifiedOutcome:
+      "Qualitative case only; quantified range withheld because key assumptions are unverified.",
+    impliedMultiple: null,
+    probabilityHint: "Not probability-weighted until the evidence gate clears.",
+  };
+}
+
 function buildDepthSystemPrompt(isPrivateCompany: boolean): string {
   return [
     "You are writing structured buy-side memo fields for an investment analysis product.",
@@ -916,7 +1049,7 @@ function buildDepthSystemPrompt(isPrivateCompany: boolean): string {
     "Bear and bull cases must include a specific implied multiple when possible; otherwise explain that evidence is insufficient.",
     "Kill criteria must be measurable and investor-facing, not vague prose.",
     isPrivateCompany
-      ? "This company should be treated as private or diligence-led, so stay conservative and explicit about evidence limits. Enumerate verified fields first, inferred fields second, and state unknowns third. Do not generate a thesis unless the diligence checklist has cleared its critical gates."
+      ? "This company should be treated as private or diligence-led, so stay conservative and explicit about evidence limits. Generate diligence-gate thesis drivers as testable claims or conditions, not as a fully underwritten buy thesis. Enumerate verified fields first, inferred fields second, and state unknowns third."
       : "This company should be treated as public, so prioritize valuation framing, consensus mismatch, and what is already priced in.",
   ].join(" ");
 }
@@ -1000,6 +1133,7 @@ function buildDepthPromptPayload(
           archetype: memo.driverTree.archetype,
           archetypeLabel: archetypeLabel(memo.driverTree.archetype),
           criticalMissing: memo.driverTree.criticalMissing,
+          importantMissing: memo.driverTree.importantMissing,
           drivers: memo.driverTree.drivers.map((d) => ({
             name: d.name,
             status: d.status,
@@ -1040,6 +1174,7 @@ async function synthesizeDepthFields(
   const withheldSections = input.withheldSections ?? [];
   const isWithheld = (section: WithheldSection["section"]): boolean =>
     withheldSections.some((item) => item.section === section);
+  const scenarioRangeWithheld = isWithheld("scenario-range");
   const comparablePeers = buildComparablePeers(input);
   const primaryValuationContext = selectPrimaryValuationContext(
     input,
@@ -1056,12 +1191,17 @@ async function synthesizeDepthFields(
     input.metrics,
     evidenceAnchors,
   );
+  const fallbackThesisDrivers = buildFallbackThesisDrivers(
+    memo,
+    evidenceAnchors,
+    enrichedDriverTree,
+  );
   const baseDepthFields: DepthMemoFields = {
     evidenceAnchors,
-    thesisDrivers: null,
+    thesisDrivers: fallbackThesisDrivers,
     unitEconomics: null,
-    bullCase: null,
-    bearCase: null,
+    bullCase: buildFallbackScenario(memo, "bull", scenarioRangeWithheld),
+    bearCase: buildFallbackScenario(memo, "bear", scenarioRangeWithheld),
     pricedInAnalysis: pricedInBase,
     variantView: null,
     catalysts: null,
@@ -1076,16 +1216,14 @@ async function synthesizeDepthFields(
 
   if (memo.judgmentLayer?.blocked === true) {
     console.info(
-      `[memo-agent] judgment layer blocks depth synthesis for ${input.company}: ${memo.judgmentLayer.blockReasons.join("; ")}`,
+      `[memo-agent] judgment layer caps conviction for ${input.company}: ${memo.judgmentLayer.blockReasons.join("; ")}`,
     );
-    return baseDepthFields;
   }
 
   if (enrichedDriverTree.blocksConviction) {
     console.info(
-      `[memo-agent] driver tree blocks conviction for ${input.company}: missing ${enrichedDriverTree.criticalMissing.join(", ")}`,
+      `[memo-agent] driver tree caps conviction for ${input.company}: missing ${enrichedDriverTree.criticalMissing.join(", ")}`,
     );
-    return baseDepthFields;
   }
 
   let client: Anthropic;
@@ -1149,7 +1287,9 @@ async function synthesizeDepthFields(
         continue;
       }
 
-      const sanitizedDrivers = sanitizeThesisDrivers(parsed.thesisDrivers, evidenceAnchors);
+      const sanitizedDrivers =
+        sanitizeThesisDrivers(parsed.thesisDrivers, evidenceAnchors) ??
+        fallbackThesisDrivers;
       const driverCount = sanitizedDrivers?.length ?? 0;
       const sanitizedKillCriteria =
         parsed.whatWouldChangeTheCall === null
@@ -1163,9 +1303,19 @@ async function synthesizeDepthFields(
       return {
         ...baseDepthFields,
         evidenceAnchors: [...evidenceAnchors, ...modelInferenceAnchors],
-        thesisDrivers: isWithheld("private-thesis") ? null : sanitizedDrivers,
-        bullCase: isWithheld("scenario-range") ? null : parsed.bullCase,
-        bearCase: isWithheld("scenario-range") ? null : parsed.bearCase,
+        thesisDrivers: sanitizedDrivers,
+        bullCase: applyScenarioRangeGate(
+          parsed.bullCase,
+          memo,
+          "bull",
+          scenarioRangeWithheld,
+        ),
+        bearCase: applyScenarioRangeGate(
+          parsed.bearCase,
+          memo,
+          "bear",
+          scenarioRangeWithheld,
+        ),
         pricedInAnalysis: isWithheld("priced-in-analysis")
           ? null
           : buildPricedInAnalysis(
@@ -1207,13 +1357,6 @@ export async function runMemoAgent(
   input: MemoAgentInput,
 ): Promise<MemoAgentResult> {
   const challengerReport = input.challengerReport ?? null;
-  const augmentedCoverageGaps =
-    challengerReport === null
-      ? input.coverageGaps
-      : [
-          ...input.coverageGaps,
-          ...challengerGapsFromReport(challengerReport),
-        ];
   const augmentedDisagreementNotes =
     challengerReport === null
       ? input.disagreementNotes
@@ -1222,7 +1365,7 @@ export async function runMemoAgent(
           ...challengerNotesFromReport(challengerReport),
         ];
 
-  const baseMemo = buildInvestmentMemo({
+  const baseMemoInput = {
     company: input.company,
     entityResolution: input.entityResolution,
     confidence: input.confidence,
@@ -1232,13 +1375,31 @@ export async function runMemoAgent(
     earningsHighlights: input.earningsHighlights,
     newsHighlights: input.newsHighlights,
     evidenceSignals: input.evidenceSignals,
-    coverageGaps: augmentedCoverageGaps,
-    disagreementNotes: augmentedDisagreementNotes,
     sectionAudit: input.sectionAudit,
     sources: input.waterfallResult.activeSources,
     validationReport: input.validationReport,
     waterfallResult: input.waterfallResult,
+  };
+  const roleProbeMemo = buildInvestmentMemo({
+    ...baseMemoInput,
+    coverageGaps: input.coverageGaps,
+    disagreementNotes: augmentedDisagreementNotes,
   });
+  const shouldFoldChallengerCoverageGaps =
+    challengerReport !== null && roleProbeMemo.role !== "Reference public comp";
+  const augmentedCoverageGaps = shouldFoldChallengerCoverageGaps
+    ? [
+        ...input.coverageGaps,
+        ...challengerGapsFromReport(challengerReport),
+      ]
+    : input.coverageGaps;
+  const baseMemo = shouldFoldChallengerCoverageGaps
+    ? buildInvestmentMemo({
+        ...baseMemoInput,
+        coverageGaps: augmentedCoverageGaps,
+        disagreementNotes: augmentedDisagreementNotes,
+      })
+    : roleProbeMemo;
 
   const challengerItems =
     challengerReport === null
@@ -1250,10 +1411,34 @@ export async function runMemoAgent(
         ];
   const highSeverityCount = challengerItems.filter((item) => item.severity === "high").length;
   const mediumSeverityCount = challengerItems.filter((item) => item.severity === "medium").length;
-  const convictionDowngraded = highSeverityCount > 0 || mediumSeverityCount >= 3;
-  const finalConviction = convictionDowngraded
+  const convictionDowngraded = shouldDowngradeForChallenger(
+    baseMemo.role,
+    highSeverityCount,
+    mediumSeverityCount,
+  );
+  const driverTreeConvictionCapped =
+    baseMemo.driverTree?.blocksConviction === true;
+  const driverTreeConvictionLimited =
+    driverTreeConvictionCapped === false &&
+    (baseMemo.driverTree?.importantMissing?.length ?? 0) > 0;
+  const challengerAdjustedConviction = convictionDowngraded
     ? downgradeConviction(baseMemo.conviction)
     : baseMemo.conviction;
+  const driverAdjustedConviction = driverTreeConvictionLimited
+    ? downgradeForImportantDriverGaps(challengerAdjustedConviction)
+    : challengerAdjustedConviction;
+  const finalConviction = driverTreeConvictionCapped
+    ? "low"
+    : driverAdjustedConviction;
+  const convictionSummary = driverTreeConvictionCapped
+    ? `${baseMemo.convictionSummary} Conviction is capped at low because critical ${archetypeLabel(
+        baseMemo.driverTree!.archetype,
+      )} drivers are missing: ${baseMemo.driverTree!.criticalMissing.join(", ")}.`
+    : driverTreeConvictionLimited
+      ? `${baseMemo.convictionSummary} Conviction is ${finalConviction} because important ${archetypeLabel(
+          baseMemo.driverTree!.archetype,
+        )} drivers are missing: ${(baseMemo.driverTree!.importantMissing ?? []).join(", ")}.`
+      : baseMemo.convictionSummary;
   const stressTest =
     challengerReport === null
       ? null
@@ -1265,6 +1450,7 @@ export async function runMemoAgent(
   const finalMemo: InvestmentMemo = {
     ...baseMemo,
     conviction: finalConviction,
+    convictionSummary,
     stressTest,
   };
   const sourceEvidenceAnchors = buildEvidenceAnchors(input);

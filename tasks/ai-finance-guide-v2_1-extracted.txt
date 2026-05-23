@@ -1,0 +1,1486 @@
+--- PAGE 1 (obj 1) ---
+@DEEPTHINKSFINANCE
+
+·
+
+AI
+
+!
+
+FINANCE
+
+!
+
+QUANT
+
+THE INSIDER'S GUIDE
+
+TO
+
+AI IN FINANCE
+
+How Hedge Funds Think. How You Can Too.
+
+VERSION 2.1 — EXPANDED EDITION
+
+NEW
+
+Now includes: FinGPT · BloombergGPT · FinQA · LLM Stack · Viral Playbook ·
+
+Free Data API
+
+Guide
+
+by @deepthinksﬁnance
+
+AI
+
+!
+
+FINANCE
+
+!
+
+QUANT
+
+--- PAGE 2 (obj 26) ---
+TABLE OF CONTENTS
+
+01
+
+The Gap Nobody Talks About
+
+02
+
+Why AI Is Rewriting the Rules of Finance
+
+03
+
+The Complete Finance AI Toolkit
+
+04
+
+How It All Connects — The Hedge Fund AI Stack
+
+05
+
+The Viral Content Playbook
+
+06
+
+Real Talk — What Nobody Tells You About FinGPT
+
+07
+
+Free Financial Data APIs — Your Market Data Layer
+
+NEW
+
+Let me paint you a picture.
+
+It is 6:47 AM in New York. A hedge fund quant sits at a setup running 14
+
+Bloomberg Terminal screens. Algorithms are already scanning 3.2 million
+
+news articles. AI models are extracting sentiment from earnings calls.
+
+Satellite imagery is counting cars in Walmart parking lots to predict retail
+
+sales before the numbers go public.
+
+SECTION 01
+
+The Gap Nobody Talks About
+
+--- PAGE 3 (obj 35) ---
+Now switch to you.
+
+You are reading WhatsApp tips. You are watching YouTube videos that
+
+were already outdated when they were uploaded. You are making
+
+decisions on data that institutions processed three hours ago.
+
+That is the gap. And it is not a small one.
+
+BloombergGPT
+
+$2.6M
+
+Training cost — hedge fund AI
+
+FinGPT
+
+$65
+
+Training cost — open-source AI
+
+That is not a typo. A forty-thousand-times cost difference. The open-
+
+source AI model that can replicate a signiﬁcant portion of what
+
+institutional LLMs do cost sixty-ﬁve dollars to train. That is your entry
+
+point. This guide is about walking through it.
+
+The Bloomberg Terminal Reality Check
+
+A Bloomberg Terminal costs approximately USD 24,000 per year —
+
+roughly Rs. 20 lakh. The tools in this guide cost you close to nothing. The
+
+difference is that nobody showed you how to use them. Until now.
+
+--- PAGE 4 (obj 42) ---
+Finance has always been an information game. The person with better
+
+data, faster analysis, and cooler nerves wins. AI does not change the game.
+
+It compresses timelines from days to milliseconds.
+
+What AI Actually Does in Finance
+
+The Uncomfortable Truth
+
+The ﬁrms that are winning today built their AI infrastructure ﬁve years
+
+SECTION 02
+
+Why AI Is Rewriting the Rules of
+
+Finance
+
+Reading and categorizing thousands of earnings call transcripts in seconds,
+
+ﬂagging tonal shifts before human analysts even open the PDF.
+
+—
+
+Processing satellite imagery to estimate oil tank volumes, shipping container
+
+ﬂows, or agricultural yield — months before ofﬁcial ﬁgures land.
+
+—
+
+Running factor models across hundreds of variables to ﬁnd statistically
+
+signiﬁcant predictors of price movement.
+
+—
+
+Scanning social media and news for sentiment signals that precede market
+
+moves by hours or days.
+
+—
+
+Automating compliance reviews, credit scoring, and fraud detection at scale
+
+with fewer errors than human teams.
+
+—
+
+--- PAGE 5 (obj 47) ---
+ago. You are not ﬁve years behind — open-source tools like FinGPT did
+
+not exist ﬁve years ago. You are exactly on time.
+
+Most of these tools have no marketing budget. They live on GitHub and
+
+research papers. That is exactly why almost nobody outside institutional
+
+circles knows they exist.
+
+Until now.
+
+TOOL 01
+
+FinGPT — The Open-Source Bloomberg AI
+
+AI4Finance Foundation · $65 to train · Fully open-source
+
+What It Is
+
+An open-source LLM ﬁne-tuned speciﬁcally on ﬁnancial
+
+data. It understands market terminology, earnings
+
+language, regulatory ﬁlings, and can perform sentiment
+
+analysis, generate trading signals, and answer ﬁnancial
+
+Q&A — in a way general-purpose models cannot match
+
+without heavy prompting.
+
+Why Funds Use
+
+It
+
+BloombergGPT, trained on 363 billion ﬁnancial tokens,
+
+cost $2.6 million to build. FinGPT replicates a meaningful
+
+SECTION 03
+
+The Complete Finance AI Toolkit
+
+--- PAGE 6 (obj 52) ---
+portion of that capability using Low-Rank Adaptation
+
+(LoRA) ﬁne-tuning on existing open models — at $65.
+
+The Free Path
+
+Fully free on Hugging Face and GitHub. Run in Google
+
+Colab — no GPU required for inference.
+
+Mini Example
+
+Feed FinGPT the last four earnings transcripts from an
+
+FMCG company. Prompt it to identify any shift in
+
+management language around operating margins. You will
+
+often spot guidance softening two quarters before the
+
+analyst community catches it.
+
+Insider Insight
+
+FinGPT uses LoRA ﬁne-tuning on base models like
+
+LLaMA-2 or Falcon. You can ﬁne-tune it further on your
+
+own data for speciﬁc use cases. That is where
+
+institutional-grade personalisation begins.
+
+Resource
+
+github.com/AI4Finance-Foundation/FinGPT ·
+
+huggingface.co/FinGPT
+
+TOOL 02
+
+FinBERT — Sentiment Analysis Built for Finance
+
+ProsusAI/ﬁnbert · BERT ﬁne-tuned on ﬁnancial text
+
+What It Is
+
+A BERT-based model ﬁne-tuned on ﬁnancial news
+
+capable of assigning positive, negative, or neutral
+
+sentiment to ﬁnancial text. Unlike general models, FinBERT
+
+understands that "margin pressure" is negative and
+
+"sequential improvement" is positive.
+
+How YOU Use It
+
+Pull daily news headlines for a watchlist of stocks. Run
+
+each headline through FinBERT. Compute a 7-day rolling
+
+average sentiment score per company. Plot against price.
+
+Look for divergences — where sentiment has moved but
+
+price has not yet followed.
+
+--- PAGE 7 (obj 56) ---
+Mini Example
+
+Three months of NSE mid-cap news run through FinBERT.
+
+Companies with persistently deteriorating sentiment but
+
+ﬂat prices tend to lead subsequent corrections by 10–20
+
+trading days. A quantiﬁable edge built in an afternoon.
+
+Resource
+
+huggingface.co/ProsusAI/ﬁnbert
+
+TOOL 03
+
+FinQA Dataset — Where Real Finance AI Gets Tested
+
+czyssrs/FinQA · Numerical reasoning · Built by ﬁnancial experts
+
+What It Is
+
+A research-grade dataset of complex ﬁnancial questions
+
+paired with multi-step numerical answers, drawn directly
+
+from SEC ﬁlings and earnings documents. Tests a model's
+
+ability to reason mathematically over real ﬁnancial
+
+reports.
+
+Insider Insight
+
+FinQA is not just a dataset — it is a philosophy. Real
+
+ﬁnancial intelligence requires multi-step numerical
+
+reasoning over long documents, not keyword retrieval.
+
+Any AI system you build for ﬁnance should pass a
+
+FinQA-style test before you trust it with actual
+
+decisions.
+
+Resource
+
+github.com/czyssrs/FinQA
+
+TOOL 04
+
+Automation Stack — n8n, Make, and the Glue Layer
+
+n8n.io · make.com · Open-source workﬂow automation
+
+What It Is
+
+No-code platforms that connect tools, APIs, and AI
+
+--- PAGE 8 (obj 59) ---
+models into automated pipelines — the operational
+
+infrastructure that turns your research tools into a running
+
+system that works while you sleep.
+
+Mini Example
+
+Monitor 20 NSE companies. Tag each daily news article
+
+positive/neutral/negative using GPT-4. Filter for any
+
+company where sentiment has shifted two standard
+
+deviations from its 30-day average. Send a Telegram alert.
+
+Total setup: one afternoon.
+
+Insider Insight
+
+The real value of automation is not efﬁciency — it is
+
+consistency. Your pipeline runs every day, regardless of
+
+your mood. Over time, consistent data collection
+
+compounds into a proprietary dataset nobody else has.
+
+Resource
+
+n8n.io · make.com
+
+Individual tools are interesting. A connected system is powerful. Here is
+
+how the pieces ﬁt together — and how to build your version of it.
+
+SECTION 04
+
+How It All Connects — The Hedge
+
+Fund AI Stack
+
+--- PAGE 9 (obj 62) ---
+Data APIs
+
+yﬁnance + FRED + NSEpy
+
+FinBERT + FinGPT
+
+AI processing layer
+
+Your System
+
+Prompts + pipeline
+
+Output
+
+Signals & research
+
+The Full Stack Summary
+
+Data:
+
+yﬁnance + Alpha Vantage + FRED + NSEpy + News API
+
+Model:
+
+FinBERT + FinGPT + GPT-4
+
+"
+
+|
+
+"
+
+Benchmark:
+
+FinQA validation
+
+Automation:
+
+n8n or Make.com
+
+"
+
+|
+
+"
+
+Delivery:
+
+Telegram bot
+
+Monthly cost at full scale: under Rs. 2,000.
+
+This section is about turning your knowledge of ﬁnance AI into an
+
+audience, a brand, and eventually an income. Every insight in this guide is a
+
+content opportunity.
+
+SECTION 05
+
+The Viral Content Playbook
+
+--- PAGE 10 (obj 67) ---
+"Bloomberg charges Rs. 20 lakh/year. I built this for free."
+
+CTA: Comment 'AI FINANCE' and I'll send the full repo list.
+
+Why it works: Cost contrast is one of the most reliable viral triggers in ﬁnance
+
+content. The number does the work — you just need to show it.
+
+"Why ChatGPT fails at real ﬁnance analysis — and this free
+
+tool ﬁxes it."
+
+CTA: Save this. Then try it yourself. Link in bio.
+
+Why it works: Positions FinQA and FinGPT as insider knowledge while giving the
+
+audience something actionable. The 'fail' framing creates curiosity.
+
+"Retail uses ChatGPT. Hedge funds use THIS."
+
+CTA: Follow for the full breakdown — posting this week.
+
+Why it works: The contrast between what 'everyone' uses and what institutions use
+
+is a reliable authority signal.
+
+"I built a hedge fund AI using free tools. Here's the full stack."
+
+CTA: Drop a question below and I'll answer every one.
+
+Why it works: Transparency and speciﬁcity drive engagement. 'Free tools' + 'hedge
+
+fund' is a high-tension combination that earns saves and shares.
+
+--- PAGE 11 (obj 80) ---
+FinGPT is powerful. It is also limited. Here is what you need to know.
+
+The Real Edge
+
+The edge in AI-driven ﬁnance is not ﬁnding a magic model. It is the
+
+discipline to build systematically, evaluate honestly, and iterate patiently.
+
+Most people are not willing to do that. That is your opportunity.
+
+SECTION 06
+
+Real Talk — What Nobody Tells
+
+You About FinGPT
+
+Data quality is everything:
+
+FinGPT is only as good as the ﬁnancial data it
+
+was trained on. Noisy inputs produce degraded outputs.
+
+—
+
+Fine-tuning is required for precision:
+
+Out-of-the-box FinGPT performs
+
+well on general ﬁnancial tasks. For Indian regulatory ﬁlings or SEBI circulars,
+
+you need domain-speciﬁc ﬁne-tuning.
+
+—
+
+Use-case design matters more than the model:
+
+Two people using the
+
+same FinGPT model with different prompts will get dramatically different
+
+results.
+
+—
+
+It is not a trading system:
+
+FinGPT does NLP. It reads and understands text. It
+
+does not run quantitative backtests, build factor models, or predict prices.
+
+—
+
+Overﬁtting to historical data kills models:
+
+Markets change regime. COVID
+
+changed regime. Rate cycles change regime. Models must be continuously
+
+retrained.
+
+—
+
+--- PAGE 12 (obj 83) ---
+Most retail investors operate blind. Institutions don't — they run live
+
+data pipelines feeding real-time prices, macro indicators, bond
+
+yields, commodity curves, and alternative datasets into their
+
+models. Here is the full map of
+
+free APIs
+
+that give you the same raw
+
+material.
+
+How to use this section
+
+Each API below includes what data it covers, how to get your free key, a
+
+Python code snippet, and the rate limits you need to know. All of these
+
+work with Google Colab — no local setup required.
+
+API 01
+
+yﬁnance — Stocks, ETFs, Options, Crypto, Forex
+
+No API key required · Install and go
+
+Covers
+
+options chains, historical OHLCV data back to the 1970s
+
+SECTION 07
+
+"
+
+NEW
+
+NEW
+
+NEW
+
+NEW
+
+Free Financial Data APIs
+
+Your Market Data Layer
+
+--- PAGE 13 (obj 89) ---
+Free Key?
+
+No key needed
+
+— Install the library and start pulling data
+
+immediately.
+
+Rate Limit
+
+Unofﬁcial API — throttle to ~2,000 requests/hour to avoid
+
+IP blocks.
+
+Code
+
+import
+
+yfinance
+
+as
+
+yf
+
+# Pull Reliance Industries daily data (5 years)
+
+ticker = yf.Ticker(
+
+"RELIANCE.NS"
+
+)
+
+df = ticker.history(period=
+
+"5y"
+
+)
+
+# Also works for: AAPL, BTC-USD, EUR=X (Forex), GC=F (Gold Futures)
+
+# NSE tickers: append .NS | BSE tickers: append .BO
+
+Insider Tip
+
+yﬁnance also pulls earnings dates, analyst
+
+recommendations, institutional holders, and full
+
+balance sheet data — all free.
+
+Use
+
+ticker.info
+
+for the
+
+complete data dictionary.
+
+API 02
+
+Alpha Vantage — Stocks + Forex + Crypto + Commodities
+
+Free key at alphavantage.co · Most comprehensive free ﬁnancial API
+
+Covers
+
+Global equities, forex, crypto, commodities (WTI Oil, Brent,
+
+Natural Gas, Copper, Aluminum, Wheat, Corn, Cotton,
+
+Sugar, Coffee), 50+ built-in technical indicators
+
+Free Key
+
+Free key
+
+at alphavantage.co — 30 seconds to register.
+
+Free tier: 25 requests/day, 500/month. USD 50/month for
+
+75 req/min unlimited.
+
+Code
+
+--- PAGE 14 (obj 94) ---
+Code
+
+import
+
+requests
+
+API_KEY
+
+=
+
+"YOUR_FREE_KEY"
+
+# Pull Crude Oil (WTI) daily prices
+
+url =
+
+f"https://www.alphavantage.co/query?function=WTI&interval=daily&apikey={API_KEY}"
+
+data = requests.get(url).json()
+
+# For gold: function=COPPER | forex: function=FX_DAILY&from_symbol=USD&to_symbol=INR
+
+Commodities
+
+WTI Crude, Brent Crude, Natural Gas, Copper, Aluminum,
+
+Wheat, Corn, Cotton, Sugar, Coffee — all free endpoints.
+
+Insider Tip
+
+Alpha Vantage's EARNINGS endpoint gives you
+
+historical EPS surprise data — critical for building
+
+earnings drift models.
+
+Understudied, very useful for
+
+Indian ADR analysis too.
+
+API 03
+
+FRED API — The Macro Intelligence Layer
+
+Federal Reserve Economic Data · 800,000+ economic time series · Free
+
+Covers
+
+US Treasury yields (2Y, 10Y, 30Y), Fed Funds Rate, CPI, PCE
+
+inﬂation, GDP, unemployment, yield curve spreads, M2
+
+money supply, credit spreads — across 200+ countries
+
+Free Key
+
+Free key
+
+at fred.stlouisfed.org/docs/api/api_key.html —
+
+instant registration. 120 requests/minute.
+
+Why It Matters
+
+The yield curve (10Y–2Y spread) is the most historically
+
+reliable recession predictor. Every rate cycle analysis,
+
+bond model, and macro regime ﬁlter needs FRED data.
+
+Code
+
+--- PAGE 15 (obj 97) ---
+Code
+
+from
+
+fredapi
+
+import
+
+Fred
+
+fred = Fred(api_key=
+
+"YOUR_FRED_KEY"
+
+)
+
+# 10-Year Treasury Yield
+
+yield_10y = fred.get_series(
+
+"DGS10"
+
+)
+
+# Yield curve spread (10Y - 2Y) — key recession signal
+
+spread = fred.get_series(
+
+"T10Y2Y"
+
+)
+
+# Key series: DFF (Fed Funds Rate), CPIAUCSL (CPI), UNRATE (Unemployment)
+
+Insider Tip
+
+Pair FRED macro regime data with your yﬁnance equity
+
+data to build regime-conditional models.
+
+Backtests that
+
+ignore macro regime are dramatically less predictive.
+
+API 04
+
+Polygon.io — Institutional-Grade Tick Data
+
+US Equities, Options, Forex · Free EOD tier
+
+Covers
+
+US stocks, options chains, forex, crypto — real-time (paid)
+
+or 15-min delayed (free). Tick-level historical data for
+
+backtesting.
+
+Free Key
+
+Free key
+
+at polygon.io — unlimited API calls on end-of-
+
+day data. Real-time requires USD 29/month.
+
+Code
+
+from
+
+polygon
+
+import
+
+RESTClient
+
+client = RESTClient(
+
+"YOUR_POLYGON_KEY"
+
+)
+
+# Get Apple daily bars for last year
+
+aggs = client.get_aggs(
+
+"AAPL"
+
+, 1,
+
+"day"
+
+,
+
+"2024-01-01"
+
+,
+
+"2024-12-31"
+
+)
+
+--- PAGE 16 (obj 100) ---
+Insider Tip
+
+Polygon's reference data endpoint gives you all US
+
+ticker metadata — sector, SIC code, exchange,
+
+outstanding shares.
+
+Excellent for building universe ﬁlters
+
+programmatically.
+
+API 05
+
+NSEpy — Indian Markets: Equities, F&O, Indices
+
+NSE India · No key required · pip install nsepy
+
+Covers
+
+NSE equities, Nifty indices, Futures & Options, delivery
+
+data, bulk/block deals, corporate actions, circuit breakers
+
+Free Key?
+
+No key needed
+
+— NSEpy scrapes NSE's public endpoints.
+
+Add sleep(0.5) between requests to avoid blocks.
+
+Code
+
+from
+
+nsepy
+
+import
+
+get_history
+
+from
+
+datetime
+
+import
+
+date
+
+# Pull HDFC Bank historical data
+
+data = get_history(symbol=
+
+"HDFCBANK"
+
+,
+
+start=date(2022,1,1), end=date(2024,12,31))
+
+# F&O data: add series='XX', futures=True
+
+# Or use yfinance with HDFCBANK.NS for more stability
+
+Insider Tip
+
+NSE's public bhav copy (end-of-day CSV) is released
+
+daily. Automate its download and you have a free, clean
+
+Indian equity database going back years — better than
+
+most paid tools.
+
+--- PAGE 17 (obj 103) ---
+API 06
+
+CoinGecko — The Complete Free Crypto Data API
+
+10,000+ cryptocurrencies · On-chain data · Free tier
+
+Covers
+
+10,000+ crypto assets — prices, market cap, volume,
+
+historical OHLCV, exchange data, DeFi protocol TVL, on-
+
+chain metrics
+
+Free Key
+
+Free key
+
+at coingecko.com/api — 10,000 calls/month. No
+
+credit card. Sufﬁcient for research and dashboards.
+
+Code
+
+from
+
+pycoingecko
+
+import
+
+CoinGeckoAPI
+
+cg = CoinGeckoAPI()
+
+# Bitcoin price in INR + USD
+
+price = cg.get_price(ids=
+
+"bitcoin"
+
+, vs_currencies=
+
+"inr,usd"
+
+)
+
+# 90-day historical OHLCV for Ethereum
+
+data = cg.get_coin_ohlc_by_id(id=
+
+"ethereum"
+
+, vs_currency=
+
+"usd"
+
+, days=90)
+
+Insider Tip
+
+Build a crypto regime indicator by combining BTC
+
+dominance + market cap + volume data — all from
+
+CoinGecko, all free.
+
+This outperforms most paid
+
+fear/greed indices.
+
+API 07
+
+ExchangeRate-API — Real-Time Forex Data
+
+170+ currency pairs · USD/INR · Historical rates
+
+Covers
+
+170+ currency pairs. USD/INR, EUR/INR, GBP/USD, cross
+
+--- PAGE 18 (obj 107) ---
+rates. Real-time and historical.
+
+Free Key
+
+Free key
+
+at exchangerate-api.com — 1,500
+
+requests/month free.
+
+Code
+
+import
+
+requests
+
+url =
+
+f"https://v6.exchangerate-api.com/v6/YOUR_KEY/latest/USD"
+
+data = requests.get(url).json()
+
+inr_rate = data[
+
+"conversion_rates"
+
+][
+
+"INR"
+
+]
+
+Insider Tip
+
+USD/INR is driven heavily by FII ﬂows and RBI
+
+intervention.
+
+Combine exchange rate data with FII net
+
+ﬂow data from NSE to build a rupee pressure indicator —
+
+a genuinely useful edge for Indian investors.
+
+API 08
+
+World Bank API — Global Macro & Emerging Market Data
+
+16,000+ indicators · 200+ countries · No key required
+
+Covers
+
+GDP growth, FDI inﬂows, current account balance, debt-
+
+to-GDP, poverty rates, energy consumption — across
+
+200+ countries including all major EM economies
+
+Free Key?
+
+No key needed
+
+— The World Bank API is fully open. Use the
+
+wbgapi
+
+Python library.
+
+Code
+
+import
+
+wbgapi
+
+as
+
+wb
+
+# India GDP growth rate (annual %)
+
+gdp = wb.data.DataFrame(
+
+"NY.GDP.MKTP.KD.ZG"
+
+,
+
+"IND"
+
+, mrv=20)
+
+--- PAGE 19 (obj 110) ---
+# Compare BRICS inflation rates
+
+infl = wb.data.DataFrame(
+
+"FP.CPI.TOTL.ZG"
+
+,
+
+[
+
+"IND"
+
+,
+
+"CHN"
+
+,
+
+"BRA"
+
+,
+
+"RUS"
+
+,
+
+"ZAF"
+
+])
+
+Insider Tip
+
+World Bank + FRED together give you a complete global
+
+macro picture.
+
+Use World Bank for EM/frontier markets
+
+where FRED has no coverage.
+
+API 09
+
+NASDAQ Data Link — Commodities, Futures & Alt Data
+
+Formerly Quandl · Gold, Oil, Agricultural Futures · Global Bond Yields
+
+Covers
+
+Commodity futures (gold, silver, oil, agricultural), global
+
+equity indices, real estate data, government bond yields
+
+for 40+ countries, alternative economic datasets
+
+Free Key
+
+Free key
+
+at data.nasdaq.com — unlimited calls on free
+
+datasets.
+
+Code
+
+import
+
+nasdaqdatalink
+
+nasdaqdatalink.ApiConfig.api_key =
+
+"YOUR_KEY"
+
+# Gold spot price (USD/troy oz) — historical
+
+gold = nasdaqdatalink.get(
+
+"LBMA/GOLD"
+
+)
+
+# India 10Y Government Bond Yield
+
+bonds = nasdaqdatalink.get(
+
+"MOFSL/IN10Y"
+
+)
+
+Insider Tip
+
+NASDAQ Data Link hosts UN Comtrade import/export
+
+data — free.
+
+Trade ﬂow data is a leading indicator for
+
+--- PAGE 20 (obj 113) ---
+currency moves and sector demand cycles.
+
+The Complete Free API Cheat Sheet
+
+API
+
+What It Covers
+
+Key
+
+Required?
+
+Free Limit
+
+yfinance
+
+Stock
+
+Crypto, Forex
+
+No key
+
+Unlimited
+
+(throttle)
+
+Alpha Vantage
+
+Stocks, Forex, Crypto,
+
+Commodities
+
+Free
+
+instant
+
+25 req/day
+
+FRED
+
+Bonds, Macro, Rates,
+
+Economic Data
+
+Free
+
+instant
+
+120 req/min
+
+Polygon.io
+
+US Equities, Options, Forex
+
+Free
+
+instant
+
+Unlimited
+
+EOD
+
+NSEpy
+
+Indian NSE Equities, F&O,
+
+Indices
+
+No key
+
+Rate-limit
+
+manually
+
+CoinGecko
+
+Crypto Prices, Market Cap,
+
+DeFi
+
+Free
+
+instant
+
+10,000/month
+
+ExchangeRate-
+
+API
+
+Forex — 170+ pairs
+
+Free
+
+instant
+
+1,500/month
+
+World Bank
+
+Global Macro, GDP,
+
+Emerging Markets
+
+No key
+
+Unlimited
+
+NASDAQ Data
+
+Link
+
+Commodities, Alt Data,
+
+Global Bonds
+
+Free
+
+instant
+
+Unlimited
+
+(free sets)
+
+--- PAGE 21 (obj 117) ---
+Where to Get Your Free API Keys
+
+Alpha Vantage
+
+Alpha Vantage
+
+Alpha Vantage
+
+Alpha Vantage
+
+alphavantage.co/support/#api-key
+
+FRED API
+
+FRED API
+
+FRED API
+
+FRED API
+
+fred.stlouisfed.org/docs/api/api_key.html
+
+Polygon.io
+
+Polygon.io
+
+Polygon.io
+
+Polygon.io
+
+polygon.io (sign up free)
+
+CoinGecko
+
+CoinGecko
+
+CoinGecko
+
+CoinGecko
+
+coingecko.com/api
+
+ExchangeRate-API
+
+ExchangeRate-API
+
+ExchangeRate-API
+
+ExchangeRate-API
+
+exchangerate-api.com
+
+NASDAQ Data Link
+
+NASDAQ Data Link
+
+NASDAQ Data Link
+
+NASDAQ Data Link
+
+data.nasdaq.com/sign-up
+
+How This Fits Your Stack
+
+yﬁnance / NSEpy
+
+price data
+
+"
+
+|
+
+"
+
+Alpha Vantage
+
+commodities & FX
+
+"
+
+|
+
+"
+
+FRED
+
+macro regime
+
+Feed that data into FinBERT + FinGPT (Section 03). Automate collection
+
+with n8n/Make.com (Section 04). Deliver signals via Telegram bot.
+
+Total
+
+monthly cost at full scale: under Rs. 500.
+
+What You Do Next Matters
+
+More Than This Guide
+
+You have just read material that most ﬁnance students never
+
+--- PAGE 22 (obj 121) ---
+encounter — not because it is hidden, but because they never go
+
+looking. You went looking. That already puts you ahead.
+
+The hedge funds built their systems years ago.
+
+You have access to tools they would have paid millions for.
+
+Use them.
+
+@deepthinksﬁnance
+
+AI
+
+!
+
+FINANCE
+
+!
+
+QUANT — EVERY WEEK. NO NOISE, NO
+
+FILLER.
+
+For Educational Use Only
+
+Information alone does not produce results. Execution does.
+
+—
+
+Start with one thing. Run it for 30 days.
+
+—
+
+Document what you learn. Share what you discover.
+
+—
+
+Teaching is the fastest path to genuine expertise.
+
+—
+

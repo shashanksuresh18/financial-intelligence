@@ -33,7 +33,7 @@ import {
 } from "@/lib/recent-developments";
 import { reconcileSources } from "@/lib/reconciliation";
 import { placeholderAnalysisReport } from "@/lib/types";
-import type { AnalysisReport, ChallengerReport, CoverageGap, DisagreementNote, EntityResolution, EarningsHighlight, EvidenceSignal, FinancialMetric, InsiderActivityItem, NewsHighlight, NewsSentimentSummary, PeerComparisonItem, SectionAuditItem, StreetView, ValidationReport, ValuationView, WaterfallResult, WithheldSection } from "@/lib/types";
+import type { AnalysisReport, ChallengerReport, CoverageGap, DisagreementNote, EntityResolution, EarningsHighlight, EvidenceSignal, FinancialMetric, InsiderActivityItem, InvestmentMemo, InvestmentScenario, NewsHighlight, NewsSentimentSummary, PeerComparisonItem, SectionAuditItem, StreetView, ValidationReport, ValuationView, WaterfallResult, WithheldSection } from "@/lib/types";
 
 type StepResult<T> = { data: T; ms: number };
 type EvidenceSignalParams = { waterfallResult: WaterfallResult; metrics: readonly FinancialMetric[]; streetView: StreetView | null; valuationView: ValuationView | null; earningsHighlights: readonly EarningsHighlight[]; newsSentiment: NewsSentimentSummary | null; peerComparison: readonly PeerComparisonItem[]; insiderActivity: readonly InsiderActivityItem[] };
@@ -52,6 +52,69 @@ const EMPTY_CHALLENGER_REPORT: Awaited<ReturnType<typeof runChallengerAgent>> = 
 
 function emptyChallengerReport(): Awaited<ReturnType<typeof runChallengerAgent>> {
   return { ...EMPTY_CHALLENGER_REPORT };
+}
+
+function fallbackAssumptions(
+  primary: readonly string[],
+  fallback: string,
+): readonly string[] {
+  const assumptions = primary
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .slice(0, 2);
+
+  if (assumptions.length >= 2) {
+    return assumptions;
+  }
+
+  return [
+    ...assumptions,
+    fallback,
+    "The case needs stronger evidence before a quantified scenario range is supportable.",
+  ].slice(0, 2);
+}
+
+function qualitativeScenario(
+  memo: InvestmentMemo,
+  direction: "bull" | "bear",
+): InvestmentScenario {
+  const existing = direction === "bull" ? memo.bullCase : memo.bearCase;
+
+  if (existing !== null && existing !== undefined) {
+    return {
+      ...existing,
+      quantifiedOutcome:
+        "Qualitative case only; quantified range withheld because key assumptions are unverified.",
+      impliedMultiple: null,
+      probabilityHint: "Not probability-weighted until the evidence gate clears.",
+    };
+  }
+
+  const isBull = direction === "bull";
+
+  return {
+    scenario: isBull
+      ? "Evidence improves enough to support a higher-conviction case."
+      : "Evidence gaps persist or the weakest operating driver deteriorates.",
+    assumptions: fallbackAssumptions(
+      isBull ? memo.whatImprovesConfidence : memo.whatReducesConfidence,
+      isBull ? memo.upsideCase : memo.downsideCase,
+    ),
+    quantifiedOutcome:
+      "Qualitative case only; quantified range withheld because key assumptions are unverified.",
+    impliedMultiple: null,
+    probabilityHint: "Not probability-weighted until the evidence gate clears.",
+  };
+}
+
+function applyQualitativeScenarioGate<TMemo extends InvestmentMemo>(
+  memo: TMemo,
+): TMemo {
+  return {
+    ...memo,
+    bullCase: qualitativeScenario(memo, "bull"),
+    bearCase: qualitativeScenario(memo, "bear"),
+  };
 }
 
 async function runStep<T>(
@@ -961,18 +1024,24 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
     );
   }
 
+  const scenarioRangeWithheld = finalWithheldSections.some(
+    (section) => section.section === "scenario-range",
+  );
+  const scenarioDisciplinedMemo = scenarioRangeWithheld
+    ? applyQualitativeScenarioGate(baseInvestmentMemo)
+    : baseInvestmentMemo;
   const strongRecommendationBlocked =
     !canRenderStrongRecommendation(
-      baseInvestmentMemo.recommendation,
+      scenarioDisciplinedMemo.recommendation,
       confidence,
-      baseInvestmentMemo.logic,
+      scenarioDisciplinedMemo.logic,
       finalWithheldSections,
       {
         report: scenarioProbeReport,
         reconciliationStatus,
         peerRelevanceScores,
-        bullCase: baseInvestmentMemo.bullCase ?? null,
-        diligenceChecklist: baseInvestmentMemo.diligenceChecklist ?? null,
+        bullCase: scenarioDisciplinedMemo.bullCase ?? null,
+        diligenceChecklist: scenarioDisciplinedMemo.diligenceChecklist ?? null,
       },
     );
 
@@ -986,27 +1055,20 @@ export async function runAnalysis(query: string): Promise<AnalysisReport> {
     );
   }
 
-  const disciplinedMemoBase = finalWithheldSections.some(
-    (section) => section.section === "scenario-range",
-  )
-    ? {
-        ...baseInvestmentMemo,
-        recommendation: strongRecommendationBlocked ? "watch" as const : baseInvestmentMemo.recommendation,
-        displayRecommendationLabel: strongRecommendationBlocked
-          ? "Watch"
-          : baseInvestmentMemo.displayRecommendationLabel,
-        bullCase: null,
-        bearCase: null,
-      }
-    : {
-        ...baseInvestmentMemo,
-        recommendation: strongRecommendationBlocked ? "watch" as const : baseInvestmentMemo.recommendation,
-        displayRecommendationLabel: strongRecommendationBlocked
-          ? "Watch"
-          : baseInvestmentMemo.displayRecommendationLabel,
-      };
+  const driverTreeConvictionCapped =
+    scenarioDisciplinedMemo.driverTree?.blocksConviction === true;
+  const disciplinedMemoBase = {
+    ...scenarioDisciplinedMemo,
+    recommendation: strongRecommendationBlocked ? "watch" as const : scenarioDisciplinedMemo.recommendation,
+    displayRecommendationLabel: strongRecommendationBlocked
+      ? "Watch"
+      : scenarioDisciplinedMemo.displayRecommendationLabel,
+    conviction: driverTreeConvictionCapped ? "low" as const : scenarioDisciplinedMemo.conviction,
+    convictionSummary: scenarioDisciplinedMemo.convictionSummary,
+  };
   const investmentMemo = {
     ...disciplinedMemoBase,
+    diligenceChecklist: privateDiligenceChecklist ?? disciplinedMemoBase.diligenceChecklist ?? null,
     judgmentLayer: buildJudgmentLayer(
       disciplinedMemoBase,
       confidence,

@@ -338,7 +338,13 @@ export function buildJudgmentLayer(
 
   if (confidence.level === "low" && !hasPrimaryFiling) {
     blockReasons.push(
-      "Conviction is blocked because data confidence is low and no primary filing evidence is present.",
+      "Conviction is capped because data confidence is low and no primary filing evidence is present.",
+    );
+  }
+
+  if (memo.driverTree?.blocksConviction === true) {
+    blockReasons.push(
+      `Conviction is capped because critical ${memo.driverTree.archetype} drivers are missing: ${memo.driverTree.criticalMissing.join(", ")}.`,
     );
   }
 
@@ -350,7 +356,7 @@ export function buildJudgmentLayer(
 
   if (memo.diligenceChecklist?.blockThesis === true) {
     blockReasons.push(
-      "Private-company thesis generation is blocked until critical diligence checklist items are resolved.",
+      "Private-company underwriting conviction is capped until critical diligence checklist items are resolved.",
     );
   }
 

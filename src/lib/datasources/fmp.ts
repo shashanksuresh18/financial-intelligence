@@ -19,10 +19,26 @@ const MAX_FORWARD_ESTIMATES = 3;
 const MAX_PEERS = 5;
 const PRIMARY_EXCHANGES = new Set(['NYSE', 'NASDAQ']);
 const SECONDARY_EXCHANGES = new Set(['LSE', 'XETRA', 'SIX']);
+const PEER_METRIC_SYMBOL_ALIASES: Record<string, string> = {
+  ADYEN: 'ADYYF',
+};
+const PEER_DISPLAY_NAME_OVERRIDES: Record<string, string> = {
+  ADYEN: 'Adyen N.V.',
+};
+const SUBJECT_PEER_METRIC_SYMBOLS: Record<string, readonly string[]> = {
+  KLAR: ['AFRM', 'SQ', 'PYPL', 'ADYEN', 'SEZL'],
+};
 
 type FmpSymbolResolution = {
   readonly symbol: string;
   readonly companyName: string | null;
+};
+
+export type FmpLiveQuote = {
+  readonly asOfDate: string;
+  readonly displayPrice: string;
+  readonly price: number;
+  readonly symbol: string;
 };
 
 function getApiKey(): string {
@@ -50,15 +66,39 @@ function normalizeNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function normalizePercentGrowth(value: unknown): number | null {
+  const numberValue = normalizeNumber(value);
+
+  if (numberValue === null) {
+    return null;
+  }
+
+  return Math.abs(numberValue) <= 1 ? numberValue * 100 : numberValue;
+}
+
 function normalizeString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
-async function fetchJson<T>(url: string): Promise<ApiResult<T>> {
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function formatUsdPrice(price: number): string {
+  return `$${price.toLocaleString('en-US', {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  })}`;
+}
+
+async function fetchJson<T>(
+  url: string,
+  init?: RequestInit,
+): Promise<ApiResult<T>> {
   let response: Response;
 
   try {
-    response = await fetch(url);
+    response = await fetch(url, init);
   } catch (error: unknown) {
     return {
       success: false,
@@ -104,6 +144,12 @@ function pickArray(value: unknown): readonly unknown[] {
   }
 
   return [];
+}
+
+function firstRecord(value: unknown): Record<string, unknown> | null {
+  const first = pickArray(value)[0];
+
+  return isRecord(first) ? first : null;
 }
 
 function normalizeHistoricalMultiples(
@@ -262,17 +308,148 @@ function normalizePeerProfiles(value: unknown): readonly FmpPeerProfile[] {
         marketCap:
           normalizeNumber(row['marketCap']) ??
           normalizeNumber(row['marketCapitalization']),
-        peRatio: normalizeNumber(row['peRatio']) ?? normalizeNumber(row['pe']),
+        peRatio:
+          normalizeNumber(row['peRatio']) ??
+          normalizeNumber(row['pe']) ??
+          normalizeNumber(row['priceToEarningsRatioTTM']) ??
+          normalizeNumber(row['priceEarningsRatioTTM']) ??
+          normalizeNumber(row['priceToEarningsRatio']),
         revenueGrowth:
-          normalizeNumber(row['revenueGrowth']) ??
-          normalizeNumber(row['revenueGrowthTTMYoy']),
+          normalizePercentGrowth(row['revenueGrowth']) ??
+          normalizePercentGrowth(row['growthRevenue']) ??
+          normalizePercentGrowth(row['revenueGrowthTTMYoy']) ??
+          normalizePercentGrowth(row['revenueGrowthYoy']),
         evToEbitda:
           normalizeNumber(row['evToEbitda']) ??
-          normalizeNumber(row['enterpriseValueOverEBITDA']),
+          normalizeNumber(row['evToEBITDA']) ??
+          normalizeNumber(row['evToEBITDATTM']) ??
+          normalizeNumber(row['enterpriseValueMultipleTTM']) ??
+          normalizeNumber(row['enterpriseValueOverEBITDA']) ??
+          normalizeNumber(row['enterpriseValueOverEBITDATTM']),
       };
     })
     .filter((row): row is FmpPeerProfile => row !== null)
     .slice(0, MAX_PEERS);
+}
+
+function emptyPeerProfile(symbol: string): FmpPeerProfile {
+  return {
+    symbol,
+    companyName: PEER_DISPLAY_NAME_OVERRIDES[symbol] ?? symbol,
+    currentPrice: null,
+    marketCap: null,
+    peRatio: null,
+    revenueGrowth: null,
+    evToEbitda: null,
+  };
+}
+
+function metricSymbolForPeer(symbol: string): string {
+  const normalized = symbol.trim().toUpperCase();
+
+  return PEER_METRIC_SYMBOL_ALIASES[normalized] ?? normalized;
+}
+
+function ratioMetricsFromRow(row: Record<string, unknown>): {
+  readonly peRatio: number | null;
+  readonly evToEbitda: number | null;
+} {
+  return {
+    peRatio:
+      normalizeNumber(row['priceToEarningsRatioTTM']) ??
+      normalizeNumber(row['priceEarningsRatioTTM']) ??
+      normalizeNumber(row['priceToEarningsRatio']) ??
+      normalizeNumber(row['peRatioTTM']) ??
+      normalizeNumber(row['peRatio']) ??
+      normalizeNumber(row['pe']),
+    evToEbitda:
+      normalizeNumber(row['enterpriseValueMultipleTTM']) ??
+      normalizeNumber(row['evToEBITDATTM']) ??
+      normalizeNumber(row['evToEBITDA']) ??
+      normalizeNumber(row['evToEbitda']) ??
+      normalizeNumber(row['enterpriseValueOverEBITDATTM']) ??
+      normalizeNumber(row['enterpriseValueOverEBITDA']),
+  };
+}
+
+function revenueGrowthFromRow(row: Record<string, unknown>): number | null {
+  return (
+    normalizePercentGrowth(row['revenueGrowth']) ??
+    normalizePercentGrowth(row['growthRevenue']) ??
+    normalizePercentGrowth(row['revenueGrowthTTMYoy']) ??
+    normalizePercentGrowth(row['revenueGrowthYoy'])
+  );
+}
+
+async function fetchPeerProfile(peerSymbol: string): Promise<FmpPeerProfile> {
+  const result = await fetchJson<unknown>(
+    buildUrl('/stable/profile', { symbol: peerSymbol })
+  );
+
+  if (!result.success) {
+    console.error('[fmp] profile fetch failed', {
+      symbol: peerSymbol,
+      error: result.error,
+    });
+
+    return emptyPeerProfile(peerSymbol);
+  }
+
+  const normalized = normalizePeerProfiles(result.data);
+
+  return normalized[0] ?? emptyPeerProfile(peerSymbol);
+}
+
+async function enrichPeerProfile(
+  peer: FmpPeerProfile
+): Promise<FmpPeerProfile> {
+  const metricSymbol = metricSymbolForPeer(peer.symbol);
+  const [ratiosResult, growthResult] = await Promise.all([
+    fetchJson<unknown>(buildUrl('/stable/ratios-ttm', { symbol: metricSymbol })),
+    fetchJson<unknown>(
+      buildUrl('/stable/financial-growth', { symbol: metricSymbol })
+    ),
+  ]);
+  let peRatio = peer.peRatio;
+  let evToEbitda = peer.evToEbitda;
+  let revenueGrowth = peer.revenueGrowth;
+
+  if (!ratiosResult.success) {
+    console.error('[fmp] peer ratios-ttm fetch failed', {
+      symbol: peer.symbol,
+      metricSymbol,
+      error: ratiosResult.error,
+    });
+  } else {
+    const ratioRow = firstRecord(ratiosResult.data);
+
+    if (ratioRow !== null) {
+      const ratioMetrics = ratioMetricsFromRow(ratioRow);
+      peRatio = peRatio ?? ratioMetrics.peRatio;
+      evToEbitda = evToEbitda ?? ratioMetrics.evToEbitda;
+    }
+  }
+
+  if (!growthResult.success) {
+    console.error('[fmp] peer financial-growth fetch failed', {
+      symbol: peer.symbol,
+      metricSymbol,
+      error: growthResult.error,
+    });
+  } else {
+    const growthRow = firstRecord(growthResult.data);
+
+    if (growthRow !== null) {
+      revenueGrowth = revenueGrowth ?? revenueGrowthFromRow(growthRow);
+    }
+  }
+
+  return {
+    ...peer,
+    peRatio,
+    evToEbitda,
+    revenueGrowth,
+  };
 }
 
 function normalizePeerSymbols(
@@ -463,6 +640,77 @@ async function searchFmpSymbol(
   }
 }
 
+export async function fetchFmpLiveQuote(
+  symbol: string,
+  timeoutMs = 900,
+): Promise<ApiResult<FmpLiveQuote>> {
+  const upperSymbol = symbol.trim().toUpperCase();
+
+  if (!hasApiKey()) {
+    return {
+      success: false,
+      error: 'FMP_API_KEY is not configured.',
+    };
+  }
+
+  if (upperSymbol.length === 0) {
+    return {
+      success: false,
+      error: 'A symbol is required for FMP live quote lookup.',
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const quoteResult = await fetchJson<unknown>(
+      buildUrl('/stable/quote', { symbol: upperSymbol }),
+      { signal: controller.signal },
+    );
+
+    if (!quoteResult.success) {
+      return quoteResult;
+    }
+
+    const row =
+      firstRecord(quoteResult.data) ??
+      (isRecord(quoteResult.data) ? quoteResult.data : null);
+    if (row === null) {
+      return {
+        success: false,
+        error: `No FMP quote row returned for ${upperSymbol}.`,
+      };
+    }
+
+    const price =
+      normalizeNumber(row.price) ??
+      normalizeNumber(row.currentPrice) ??
+      normalizeNumber(row.previousClose);
+
+    if (price === null) {
+      return {
+        success: false,
+        error: `No usable FMP quote price returned for ${upperSymbol}.`,
+      };
+    }
+
+    const asOfDate = todayIsoDate();
+
+    return {
+      success: true,
+      data: {
+        asOfDate,
+        displayPrice: `${formatUsdPrice(price)} as of ${asOfDate}`,
+        price,
+        symbol: upperSymbol,
+      },
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function fetchFmpData(query: string): Promise<ApiResult<FmpData>> {
   if (!hasApiKey()) {
     return {
@@ -561,49 +809,35 @@ export async function fetchFmpData(query: string): Promise<ApiResult<FmpData>> {
   const peerProfilesDirect = peersResult.success
     ? normalizePeerProfiles(peersResult.data)
     : [];
-  const peerSymbols =
-    peerProfilesDirect.length > 0 || !peersResult.success
-      ? []
-      : normalizePeerSymbols(peersResult.data, upperSymbol);
+  const peerSymbolsFromResponse = peersResult.success
+    ? normalizePeerSymbols(peersResult.data, upperSymbol)
+    : [];
+  const peerMetricSymbols =
+    SUBJECT_PEER_METRIC_SYMBOLS[upperSymbol]?.filter(
+      (peerSymbol) => peerSymbol !== upperSymbol
+    ) ?? [];
 
   let peers = peerProfilesDirect;
+  const currentPeerSymbols = new Set(
+    peers.map((peer) => peer.symbol.trim().toUpperCase())
+  );
+  const peerSymbolsToFetch = [
+    ...new Set([...peerSymbolsFromResponse, ...peerMetricSymbols]),
+  ].filter((peerSymbol) => {
+    const normalized = peerSymbol.trim().toUpperCase();
 
-  if (peers.length === 0 && peerSymbols.length > 0) {
+    return normalized.length > 0 && !currentPeerSymbols.has(normalized);
+  });
+
+  if (peerSymbolsToFetch.length > 0) {
     const peerProfileResults = await Promise.all(
-      peerSymbols.map(async (peerSymbol) => {
-        const result = await fetchJson<unknown>(
-          buildUrl('/stable/profile', { symbol: peerSymbol })
-        );
-
-        if (!result.success) {
-          console.error('[fmp] profile fetch failed', {
-            symbol: peerSymbol,
-            error: result.error,
-          });
-
-          return null;
-        }
-
-        const normalized = normalizePeerProfiles(result.data);
-
-        return (
-          normalized[0] ?? {
-            symbol: peerSymbol,
-            companyName: peerSymbol,
-            currentPrice: null,
-            marketCap: null,
-            peRatio: null,
-            revenueGrowth: null,
-            evToEbitda: null,
-          }
-        );
-      })
+      peerSymbolsToFetch.map((peerSymbol) => fetchPeerProfile(peerSymbol))
     );
 
-    peers = peerProfileResults.filter(
-      (item): item is FmpPeerProfile => item !== null
-    );
+    peers = [...peers, ...peerProfileResults];
   }
+
+  peers = await Promise.all(peers.map((peer) => enrichPeerProfile(peer)));
 
   const hasAnyData =
     historicalMultiples.length > 0 ||

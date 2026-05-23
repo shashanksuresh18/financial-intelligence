@@ -9,6 +9,7 @@ import type {
   EvidenceClass,
   FinancialMetric,
   InvestmentMemo,
+  PeerComparisonItem,
   ResearchNoteSection,
   SectionAuditItem,
   WithheldSection,
@@ -496,6 +497,7 @@ function withheldMessage(
 function renderDepthMemoPanel(
   memo: InvestmentMemo,
   withheldSections: readonly WithheldSection[],
+  peerComparison: readonly PeerComparisonItem[],
 ): JSX.Element {
   const thesisDrivers = memo.thesisDrivers ?? [];
   const bullCase = memo.bullCase;
@@ -509,6 +511,13 @@ function renderDepthMemoPanel(
   const pricedInWithheld = withheldMessage(withheldSections, "priced-in-analysis");
   const scenarioWithheld = withheldMessage(withheldSections, "scenario-range");
   const privateThesisWithheld = withheldMessage(withheldSections, "private-thesis");
+  const peerComparisonWithheld = withheldMessage(withheldSections, "peer-comparison");
+  const staleAnchorWithoutPeerRows =
+    peerComparisonWithheld === null &&
+    peerComparison.length === 0 &&
+    (comparablesAnchor?.peerGroup.length ?? 0) > 0;
+  const peerAnchorWithheld = peerComparisonWithheld ??
+    (staleAnchorWithoutPeerRows ? "No valid peer set produced" : null);
   const getAnchorEvidenceClass = (ids: readonly string[]): EvidenceClass | null =>
     ids
       .map((id) => evidenceAnchorById.get(id)?.evidenceClass ?? null)
@@ -611,6 +620,12 @@ function renderDepthMemoPanel(
       tone: driver.importance === "critical" ? ("critical" as const) : ("missing" as const),
     })),
   ];
+
+  const CHECKLIST_CFG = {
+    verified: { symbol: "✓", ring: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200", label: "Verified" },
+    estimated: { symbol: "~", ring: "border-amber-400/20 bg-amber-400/10 text-amber-200", label: "Estimated" },
+    missing: { symbol: "✗", ring: "border-rose-400/20 bg-rose-400/10 text-rose-200", label: "Missing" },
+  } as const;
 
   return (
     <section className="fi-fade-in space-y-6">
@@ -757,7 +772,7 @@ function renderDepthMemoPanel(
       {memo.driverTree ? (
         <MemoSectionCard
           eyebrow="Top 3 Variables"
-          infoText="The most important variables from the archetype driver tree. Missing critical variables block conviction upgrades."
+          infoText="The most important variables from the archetype driver tree. Missing critical variables block conviction upgrades; missing important variables limit conviction."
           title="Top 3 Variables That Matter"
         >
           <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -767,6 +782,10 @@ function renderDepthMemoPanel(
             {memo.driverTree.blocksConviction ? (
               <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-rose-200">
                 Conviction blocked
+              </span>
+            ) : (memo.driverTree.importantMissing?.length ?? 0) > 0 ? (
+              <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-amber-200">
+                Conviction limited
               </span>
             ) : null}
           </div>
@@ -811,6 +830,14 @@ function renderDepthMemoPanel(
               );
             })}
           </div>
+          {memo.driverTree.blocksConviction === false && (memo.driverTree.importantMissing?.length ?? 0) > 0 ? (
+            <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-950/20 p-4">
+              <p className="text-xs uppercase tracking-[0.22em] text-amber-200">Important gaps</p>
+              <p className="mt-2 text-sm font-light leading-relaxed text-amber-100">
+                Conviction is limited because these important drivers are missing: {(memo.driverTree.importantMissing ?? []).join(", ")}.
+              </p>
+            </div>
+          ) : null}
         </MemoSectionCard>
       ) : null}
 
@@ -947,9 +974,45 @@ function renderDepthMemoPanel(
         title="Thesis Drivers"
       >
         {privateThesisWithheld !== null ? (
-          <p className="rounded-2xl border border-amber-400/25 bg-amber-950/25 px-4 py-3 text-sm font-light leading-relaxed text-amber-100">
-            {privateThesisWithheld}
-          </p>
+          <div className="space-y-3">
+            <p className="rounded-2xl border border-amber-400/25 bg-amber-950/25 px-4 py-3 text-sm font-light leading-relaxed text-amber-100">
+              {privateThesisWithheld}
+            </p>
+            {memo.diligenceChecklist != null ? (
+              <div className="space-y-2">
+                <span className="px-1 text-xs uppercase tracking-[0.22em] text-zinc-500">
+                  {memo.diligenceChecklist.passCount} / {memo.diligenceChecklist.totalCount} resolved
+                </span>
+                {memo.diligenceChecklist.items.map((item) => {
+                  const s = CHECKLIST_CFG[item.status];
+                  return (
+                    <div
+                      className={`flex items-start justify-between gap-4 rounded-xl border border-zinc-800 px-4 py-3 ${item.status === "missing" && item.isCritical ? "bg-rose-950/30" : "bg-zinc-950/70"}`}
+                      key={item.field}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${s.ring}`}>
+                          {s.symbol}
+                        </span>
+                        <span className="text-sm font-medium text-zinc-100">{item.label}</span>
+                        {item.isCritical ? (
+                          <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-rose-200">
+                            Critical
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="max-w-[16rem] text-right text-xs font-light text-zinc-400">{item.note}</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] ${s.ring}`}>
+                          {s.label}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
         ) : thesisDrivers.length === 0 ? (
           <p className="text-sm font-light leading-relaxed text-zinc-500">
             The driver-based thesis could not be generated on this run, so the memo is falling back to the legacy narrative view inside the stored evidence.
@@ -1191,7 +1254,32 @@ function renderDepthMemoPanel(
         infoText="Comparable public peers, median anchors, and the modeling lens used to interpret them."
         title="Comparables Anchor"
       >
-        {comparablesAnchor === null ? (
+        {peerAnchorWithheld !== null ? (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-amber-400/25 bg-amber-950/25 p-4">
+              <p className="text-xs uppercase tracking-[0.22em] text-amber-200">
+                Peer data withheld
+              </p>
+              <p className="mt-2 text-sm font-light leading-relaxed text-amber-100">
+                {peerAnchorWithheld}
+              </p>
+              <p className="mt-2 text-xs uppercase tracking-[0.16em] text-amber-200/80">
+                Additional peer data unavailable for this name
+              </p>
+            </div>
+            {comparablesAnchor?.modelingNote ? (
+              <div className="rounded-2xl border border-sky-400/20 bg-sky-950/20 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-xs uppercase tracking-[0.22em] text-sky-200">Modeling note</p>
+                  {modelInferenceBadge()}
+                </div>
+                <p className="mt-2 text-sm font-light leading-relaxed text-sky-100">
+                  {comparablesAnchor.modelingNote}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        ) : comparablesAnchor === null ? (
           <p className="text-sm font-light leading-relaxed text-zinc-500">
             No peer anchor set was available for this company on the current run.
           </p>
@@ -1419,7 +1507,11 @@ export function Report({
         />
 
         {useDepthMemoView
-          ? renderDepthMemoPanel(report.investmentMemo, report.withheldSections)
+          ? renderDepthMemoPanel(
+              report.investmentMemo,
+              report.withheldSections,
+              report.peerComparison,
+            )
           : <InvestmentMemoPanel memo={report.investmentMemo} />}
 
         <details

@@ -187,11 +187,12 @@ const DRIVER_STATUS_BADGES: Record<DriverMetricStatus, { readonly symbol: string
 function DriverTreePanel({ memo }: { readonly memo: InvestmentMemo }) {
   const tree = memo.driverTree;
   if (tree === null || tree === undefined) return null;
+  const importantMissing = tree.importantMissing ?? [];
 
   return (
     <SectionCard
       eyebrow="Archetype"
-      infoText="The company has been classified into an archetype. Each archetype defines specific metrics that are critical, important, or supplementary for underwriting."
+      infoText="The company has been classified into an archetype. Critical missing drivers cap conviction; important missing drivers limit it."
       title="Key Value Drivers"
     >
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -201,6 +202,10 @@ function DriverTreePanel({ memo }: { readonly memo: InvestmentMemo }) {
         {tree.blocksConviction ? (
           <span className="rounded-full border border-rose-400/20 bg-rose-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-rose-200">
             Conviction blocked
+          </span>
+        ) : importantMissing.length > 0 ? (
+          <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-amber-200">
+            Conviction limited
           </span>
         ) : null}
       </div>
@@ -248,6 +253,14 @@ function DriverTreePanel({ memo }: { readonly memo: InvestmentMemo }) {
           <p className="text-xs uppercase tracking-[0.22em] text-rose-200">Critical gaps</p>
           <p className="mt-2 text-sm font-light leading-relaxed text-rose-100">
             {tree.criticalMissing.join(", ")} — required before conviction can be upgraded.
+          </p>
+        </div>
+      ) : null}
+      {tree.blocksConviction === false && importantMissing.length > 0 ? (
+        <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-950/20 p-4">
+          <p className="text-xs uppercase tracking-[0.22em] text-amber-200">Important gaps</p>
+          <p className="mt-2 text-sm font-light leading-relaxed text-amber-100">
+            Conviction is limited because these important drivers are missing: {importantMissing.join(", ")}.
           </p>
         </div>
       ) : null}

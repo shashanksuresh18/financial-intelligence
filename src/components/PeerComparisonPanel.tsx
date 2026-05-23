@@ -65,6 +65,7 @@ export function PeerComparisonPanel({
   withheldSections = [],
 }: PeerComparisonPanelProps) {
   const withheld = withheldSections.find((section) => section.section === "peer-comparison");
+  const visibleItems = withheld ? [] : items;
 
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
@@ -104,7 +105,7 @@ export function PeerComparisonPanel({
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800">
-            {items.length === 0 ? (
+            {visibleItems.length === 0 ? (
               <tr>
                 <td className="px-4 py-4 text-zinc-500" colSpan={6}>
                   {withheld
@@ -113,7 +114,7 @@ export function PeerComparisonPanel({
                 </td>
               </tr>
             ) : (
-              items.map((item) => (
+              visibleItems.map((item) => (
                 <tr key={`${item.symbol}-${item.companyName}`}>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap items-center gap-2">

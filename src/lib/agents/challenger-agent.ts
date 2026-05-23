@@ -126,6 +126,7 @@ function formatDriverTree(memo: InvestmentMemo): string {
     `Archetype: ${tree.archetype}`,
     `Blocks conviction: ${tree.blocksConviction ? 'yes' : 'no'}`,
     `Critical missing: ${tree.criticalMissing.length === 0 ? 'none' : tree.criticalMissing.join(', ')}`,
+    `Important missing: ${(tree.importantMissing?.length ?? 0) === 0 ? 'none' : (tree.importantMissing ?? []).join(', ')}`,
     'Drivers:',
     ...drivers,
   ].join('\n');
